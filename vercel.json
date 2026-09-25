@@ -1,7 +1,0 @@
-cat > vercel.json << 'EOF'
-{
-  "installCommand": "rm -rf node_modules package-lock.json && npm install --no-audit --no-fund",
-  "buildCommand": "chmod -R +x node_modules/.bin/ 2>/dev/null; vite build",
-  "framework": "vite"
-}
-EOF
