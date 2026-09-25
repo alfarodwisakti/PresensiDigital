@@ -115,13 +115,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       <div className="w-full max-w-5xl relative z-10 grid gap-6 lg:grid-cols-[1.15fr_0.85fr] items-center">
         <div className="hidden lg:flex flex-col gap-5 rounded-[32px] border border-cyan-300/10 bg-slate-950/35 p-8 backdrop-blur-xl shadow-[0_30px_80px_rgba(15,23,42,0.7)]">
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-cyan-100">
-            Smart School
+            KELAS DIGITAL
           </div>
           <div className="space-y-4">
             <h2 className="text-4xl font-black leading-tight text-white">
-              Presensi Digital<br />
-              <span className="bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-300 bg-clip-text text-transparent">Kelas 8.G</span>
+              PRESENSI DIGITAL<br />
+              <span className="bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-300 bg-clip-text text-transparent">KELAS 8.G</span>
             </h2>
+            <p className="text-lg font-bold text-white">SMP NEGERI 18 PADANG</p>
+            <p className="text-sm font-semibold text-cyan-100">2026/2027</p>
             <p className="max-w-md text-sm text-slate-300">
               Kelola absen, pemanggilan siswa, dan laporan kehadiran dengan tampilan yang lebih modern, cepat, dan intuitif.
             </p>
@@ -153,12 +155,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-cyan-100">
-                  Smart School
+                  KELAS DIGITAL
                 </div>
-                <h1 className="mt-3 text-2xl sm:text-3xl font-black text-white tracking-tight">SMP NEGERI 18 PADANG</h1>
+                <h1 className="mt-3 text-2xl sm:text-3xl font-black text-white tracking-tight">PRESENSI DIGITAL KELAS 8.G</h1>
               </div>
               <p className="text-sm text-slate-300 font-medium">
-                Presensi Digital Kelas 8.G
+                SMP NEGERI 18 PADANG
+              </p>
+              <p className="text-sm font-bold text-cyan-100">
+                2026/2027
               </p>
             </div>
 
@@ -250,7 +255,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           </div>
 
           <div className="text-center mt-6 text-xs text-slate-400 font-medium tracking-[0.22em] uppercase">
-            Presensi Digital Kelas 8.G • SMP Negeri
+            KELAS DIGITAL • PRESENSI DIGITAL KELAS 8.G • SMP NEGERI 18 PADANG • 2026/2027
           </div>
         </div>
       </div>
