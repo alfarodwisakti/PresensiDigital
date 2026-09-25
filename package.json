@@ -40,3 +40,9 @@
     "vite": "^6.2.3"
   }
 }
+"engines": {
+  "node": ">=20"
+},
+"scripts": {
+  "vercel-build": "rm -rf node_modules/.cache && npm run build"
+}
