@@ -1,0 +1,6 @@
+{
+  "name": "Presensi Digital 8.G",
+  "description": "Sistem presensi digital kelas 8.G dengan scan barcode QR, input manual, rekap laporan, dan manajemen data siswa.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
