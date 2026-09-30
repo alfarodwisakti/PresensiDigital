@@ -46,7 +46,41 @@ function normalizeTime(value) {
   return raw;
 }
 
-// Fungsi membaca baris dengan mapping header yang lebih fleksibel
+// Deteksi baris header (baris pertama yang memuat >=2 kata kunci kolom),
+// lalu baca baris data SETELAH baris header tersebut. Ini mengatasi sheet
+// "Siswa" yang diawali baris kop/judul (mis. dari file Excel: "REKAP PRESENSI",
+// "KELAS 8.G", "SMP NEGERI 18 PADANG", baris kosong) — penyebab utama
+// "data siswa tidak muncul / tidak ada yang cocok": tanpa deteksi ini,
+// header terbaca dari baris yang salah sehingga kolom nomorQr & nama tidak
+// pernah ketemu dan seluruh baris terbuang menjadi siswa kosong.
+function findHeaderRowIndex(values, keywords) {
+  for (let i = 0; i < Math.min(values.length, 30); i++) {
+    const norm = values[i].map(function (c) {
+      return asText(c).toLowerCase().replace(/[^a-z0-9]/g, "");
+    });
+    let found = 0;
+    for (let k = 0; k < keywords.length; k++) {
+      if (norm.indexOf(keywords[k]) >= 0) found++;
+    }
+    if (found >= 2) return i;
+  }
+  return -1;
+}
+
+// Cari indeks kolom berdasarkan daftar variasi nama header (sudah dinormalisasi).
+function pickColumnIndex(normRow, candidates) {
+  for (var c = 0; c < candidates.length; c++) {
+    var idx = normRow.indexOf(candidates[c]);
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+var QR_HEADER_CANDIDATES = ["nomorqr", "noqr", "kodeqr", "qr", "kode", "nisn", "nis", "id"];
+var NAMA_HEADER_CANDIDATES = ["namasiswa", "namalengkap", "nama", "name"];
+var KELAS_HEADER_CANDIDATES = ["ruangankelas", "rombel", "kelas"];
+var ORTU_HEADER_CANDIDATES = ["noortu", "nohportu", "notelp", "notelepon", "hportu", "nohp", "waortu"];
+
 function readSheetRows(sheetName) {
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName(sheetName);
@@ -55,17 +89,40 @@ function readSheetRows(sheetName) {
     return [];
   }
 
-  const values = sheet.getDataRange().getValues();
+  // getDisplayValues: nilai apa pun (tanggal/angka) jadi string tampil,
+  // hindari objek Date pada ID numerik.
+  const values = sheet.getDataRange().getDisplayValues();
   if (!values || values.length < 2) return [];
 
-  // Normalisasi header: huruf kecil, hapus spasi
-  const headers = values[0].map((h) => asText(h).toLowerCase().replace(/\s+/g, ""));
-  
-  return values.slice(1).map((row) => {
+  // Baris 0 dipakai sebagai header bila memang memuat kata kunci kolom;
+  // jika tidak (ada baris kop/judul di atasnya), scan sampai 30 baris pertama.
+  let headerIdx = findHeaderRowIndex(values, QR_HEADER_CANDIDATES.concat(NAMA_HEADER_CANDIDATES));
+  if (headerIdx < 0) {
+    // Fallback: perlakukan baris pertama sebagai header seperti perilaku lama.
+    headerIdx = 0;
+  }
+
+  const normHeader = values[headerIdx].map(function (h) {
+    return asText(h).toLowerCase().replace(/[^a-z0-9]/g, "");
+  });
+
+  const qrCol = pickColumnIndex(normHeader, QR_HEADER_CANDIDATES);
+  const namaCol = pickColumnIndex(normHeader, NAMA_HEADER_CANDIDATES);
+  const kelasCol = pickColumnIndex(normHeader, KELAS_HEADER_CANDIDATES);
+  const ortuCol = pickColumnIndex(normHeader, ORTU_HEADER_CANDIDATES);
+  const idCol = pickColumnIndex(normHeader, ["id"]);
+
+  // Bangun objek per baris dengan key kanonik + key header mentah (fallback).
+  return values.slice(headerIdx + 1).map(function (row) {
     const rowObj = {};
-    headers.forEach((header, idx) => {
-      rowObj[header] = row[idx] ?? "";
+    normHeader.forEach(function (header, idx) {
+      if (header) rowObj[header] = asText(row[idx]);
     });
+    if (qrCol >= 0) rowObj.nomorQr = asText(row[qrCol]);
+    if (namaCol >= 0) rowObj.nama = asText(row[namaCol]);
+    if (kelasCol >= 0) rowObj.kelas = asText(row[kelasCol]);
+    if (ortuCol >= 0) rowObj.noOrtu = asText(row[ortuCol]);
+    if (idCol >= 0) rowObj.id = asText(row[idCol]);
     return rowObj;
   });
 }
@@ -80,18 +137,40 @@ function getAdminUsers() {
 }
 
 function getDaftarSiswa(kelasFilter) {
-  const rows = readSheetRows(SHEET_DATA_SISWA).map((row) => {
-    // Cari variasi nama kolom untuk Nomor QR dan No Ortu
-    const nomorQr = asText(row["nomorqr"] || row["noqr"] || row["nis"] || row["nisn"] || row["kode"] || row["id"] || "");
-    const noOrtu = asText(row["no_ortu"] || row["noortu"] || row["nohp"] || row["notelepon"] || row["hportu"] || "");
-    
+  // readSheetRows sudah mendeteksi baris header (melewati baris kop/judul
+  // ala Excel) dan memetakan kolom secara fleksibel (nomorQr/nama/kelas/noOrtu).
+  const rawRows = readSheetRows(SHEET_DATA_SISWA);
+  if (rawRows.length === 0) return [];
+
+  // Header ternormalisasi untuk penentuan kolom cadangan bila perlu.
+  const sampleKeys = Object.keys(rawRows[0]);
+
+  const rows = rawRows.map(function (row) {
+    const nomorQr = asText(row.nomorQr || row["nomorqr"] || row["noqr"] || row.nis || row.nisn || row.kode || row.id || "");
+    const noOrtu = asText(row.noOrtu || row["noortu"] || row["nohportu"] || row.notelp || row.notelepon || row.hportu || row.nohp || row.waortu || "");
+    const kelas = asText(row.kelas || row.rombel || row.ruangankelas || "") || DEFAULT_KELAS;
+
+    // Nama: pakai kolom nama kanonik; jika kosong, ambil sel teks terpanjang
+    // yang bukan nomor QR dan bukan kode kelas.
+    let nama = asText(row.nama || row["namasiswa"] || row["namalengkap"] || "");
+    if (!nama) {
+      sampleKeys.forEach(function (k) {
+        if (k === "nomorqr" || k === "noqr" || k === "nis" || k === "nisn" || k === "kode" || k === "id" || k === "kelas" || k === "barcode") return;
+        const cell = asText(row[k]);
+        if (cell && isNaN(Number(cell)) && cell !== kelas && cell.length > nama.length) nama = cell;
+      });
+    }
+
     return {
       nomorQr: nomorQr,
       barcode: nomorQr,
-      nama: asText(row.nama),
-      kelas: asText(row.kelas),
-      noOrtu: noOrtu // Simpan nomor ortu di objek siswa
+      nama: nama,
+      kelas: kelas,
+      noOrtu: noOrtu
     };
+  }).filter(function (s) {
+    // Buang baris kop/kosong/catatan: siswa valid minimal punya Nomor QR dan Nama.
+    return s.nomorQr !== "" && s.nama !== "";
   });
 
   if (!kelasFilter) return rows;

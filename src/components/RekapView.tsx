@@ -216,9 +216,14 @@ export const RekapView: React.FC<RekapViewProps> = ({ userRole }) => {
     }
   };
 
+  // Pencarian toleran: abaikan besar/kecil huruf, spasi, dan tanda baca.
+  const normalizeSearch = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
   const filteredStudents = data.perSiswa.filter(s => {
-    const q = searchQuery.toLowerCase();
-    return s.nama.toLowerCase().includes(q) || s.nomorQr.toLowerCase().includes(q);
+    const q = normalizeSearch(searchQuery);
+    if (!q) return true;
+    return normalizeSearch(s.nama).includes(q) || normalizeSearch(s.nomorQr).includes(q);
   });
 
   const totalLogs = data.totalHadir + data.totalIzin + data.totalSakit + data.totalAlpa;
