@@ -86,7 +86,15 @@ export function escapeHtml(value: any): string {
 }
 
 function normalizeSiswaRecord(student: any): Siswa {
-  const nomorQr = String(student?.nomorQr ?? student?.["Nomor Qr"] ?? student?.["nomor qr"] ?? "").trim();
+  const nomorQr = String(
+    student?.nomorQr ??
+    student?.["Nomor Qr"] ??
+    student?.["nomor qr"] ??
+    student?.noqr ??
+    student?.nisn ??
+    student?.nis ??
+    ""
+  ).trim();
   const barcode = String(student?.barcode ?? nomorQr).trim();
   const noOrtu = String(student?.noOrtu ?? student?.["no_ortu"] ?? student?.["No Ortu"] ?? student?.["nohp"] ?? "").trim();
   return {
@@ -240,6 +248,13 @@ export async function callAPI(action: string, payload: Record<string, any> = {})
       message: "URL Web App belum diatur. Buka menu Settings dan isi URL Apps Script terlebih dahulu."
     };
   }
+
+  // CATATAN PENTING (penyebab "data siswa tidak muncul"):
+  // Google Apps Script Web App TIDAK mengizinkan header Content-Type
+  // "application/json" — fetch dengan header tersebut akan memicu preflight
+  // CORS (OPTIONS) yang selalu ditolak Apps Script, sehingga request gagal
+  // sebelum sampai ke server. Gunakan "text/plain" (simple request) dan biarkan
+  // doPost mem-parse body sebagai string JSON di sisi server.
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);

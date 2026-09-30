@@ -4,6 +4,7 @@ const SHEET_ADMIN = "Admin";
 const SHEET_DATA_SISWA = "Siswa"; // PASTIKAN NAMA TAB DI GOOGLE SHEET ADALAH "Siswa"
 const SHEET_PRESENSI = "Presensi";
 const JAM_BATAS_TERLAMBAT = "07:15";
+const DEFAULT_KELAS = "8.G";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
 const WA_TOKEN = "JhoAvrvGXDPYWGRMX7Ng"; 
@@ -81,11 +82,12 @@ function getAdminUsers() {
 function getDaftarSiswa(kelasFilter) {
   const rows = readSheetRows(SHEET_DATA_SISWA).map((row) => {
     // Cari variasi nama kolom untuk Nomor QR dan No Ortu
-    const nomorQr = asText(row["nomorqr"] || row["noqr"] || row["nis"] || "");
-    const noOrtu = asText(row["no_ortu"] || row["nohp"] || row["notelepon"] || row["hportu"] || "");
+    const nomorQr = asText(row["nomorqr"] || row["noqr"] || row["nis"] || row["nisn"] || row["kode"] || row["id"] || "");
+    const noOrtu = asText(row["no_ortu"] || row["noortu"] || row["nohp"] || row["notelepon"] || row["hportu"] || "");
     
     return {
       nomorQr: nomorQr,
+      barcode: nomorQr,
       nama: asText(row.nama),
       kelas: asText(row.kelas),
       noOrtu: noOrtu // Simpan nomor ortu di objek siswa
@@ -151,7 +153,147 @@ function doPost(e) {
         });
       }
 
-      case "simpanPresensi": {
+      // === DATA SISWA ===
+      // AKAR MASALAH "data siswa tidak muncul": action getDaftarSiswa (dan
+      // aksi CRUD siswa/rekap lainnya) TIDAK PERNAH diimplementasi di sini,
+      // sehingga server selalu membalas "Action belum diimplementasi" dan
+      // frontend tidak pernah menerima daftar siswa.
+      case "getDaftarSiswa": {
+        const kelasFilter = asText(body.kelas || body.Kelas || "");
+        // Buang baris tanpa Nomor QR (mis. catatan/kosong di sheet) agar tidak muncul sebagai siswa kosong.
+        const daftar = getDaftarSiswa(kelasFilter).filter(s => s.nomorQr !== "");
+        return outputJson({ success: true, data: daftar, total: daftar.length });
+      }
+
+      case "tambahSiswa": {
+        const nomorQr = asText(body.nomorQr || body["Nomor Qr"] || "");
+        const nama = asText(body.nama || body.Nama || "");
+        const kelas = asText(body.kelas || body.Kelas || "") || DEFAULT_KELAS;
+        const noOrtu = asText(body.noOrtu || body["no_ortu"] || body["No Ortu"] || "");
+        if (!nomorQr || !nama) return outputJson({ success: false, message: "Nomor QR dan Nama wajib diisi." });
+
+        const sheetSiswa = getSpreadsheet().getSheetByName(SHEET_DATA_SISWA);
+        if (!sheetSiswa) return outputJson({ success: false, message: "Sheet '" + SHEET_DATA_SISWA + "' tidak ditemukan. Pastikan nama tab di Google Sheet adalah '" + SHEET_DATA_SISWA + "'." });
+
+        const existing = getDaftarSiswa();
+        const dup = existing.find(s => s.nomorQr.toLowerCase() === nomorQr.toLowerCase());
+        if (dup) return outputJson({ success: false, message: "Nomor QR '" + nomorQr + "' sudah terdaftar atas nama " + dup.nama + "." });
+
+        const headerRow = sheetSiswa.getDataRange().getDisplayValues()[0].map(h => asText(h).toLowerCase().replace(/\s+/g, ""));
+        const rowArr = headerRow.map(h => {
+          if (h === "nomorqr" || h === "noqr" || h === "nisn" || h === "nis") return nomorQr;
+          if (h === "barcode") return asText(body.barcode) || nomorQr;
+          if (h === "nama") return nama;
+          if (h === "kelas") return kelas;
+          if (h === "no_ortu" || h === "noortu" || h === "nohp" || h === "notelepon" || h === "hportu") return noOrtu;
+          return "";
+        });
+        sheetSiswa.appendRow(rowArr);
+        return outputJson({ success: true, message: "Siswa berhasil ditambahkan." });
+      }
+
+      case "editSiswa": {
+        const nomorQr = asText(body.nomorQr).toLowerCase();
+        if (!nomorQr) return outputJson({ success: false, message: "Nomor QR kosong." });
+
+        const sheetSiswa = getSpreadsheet().getSheetByName(SHEET_DATA_SISWA);
+        if (!sheetSiswa) return outputJson({ success: false, message: "Sheet '" + SHEET_DATA_SISWA + "' tidak ditemukan." });
+
+        const values = sheetSiswa.getDataRange().getValues();
+        const headers = values[0].map(h => asText(h).toLowerCase().replace(/\s+/g, ""));
+        const qrCol = headers.findIndex(h => h === "nomorqr" || h === "noqr" || h === "nisn" || h === "nis");
+        if (qrCol < 0) return outputJson({ success: false, message: "Kolom Nomor QR tidak ditemukan di sheet Siswa." });
+
+        for (let i = 1; i < values.length; i++) {
+          if (asText(values[i][qrCol]).toLowerCase() === nomorQr) {
+            const namaIdx = headers.indexOf("nama");
+            const kelasIdx = headers.indexOf("kelas");
+            const ortuIdx = headers.findIndex(h => h === "no_ortu" || h === "noortu" || h === "nohp");
+            if (namaIdx >= 0 && body.nama != null) values[i][namaIdx] = asText(body.nama);
+            if (kelasIdx >= 0 && body.kelas != null) values[i][kelasIdx] = asText(body.kelas);
+            if (ortuIdx >= 0 && body.noOrtu != null) values[i][ortuIdx] = asText(body.noOrtu);
+            sheetSiswa.getRange(i + 1, 1, 1, values[i].length).setValues([values[i]]);
+            return outputJson({ success: true, message: "Data siswa berhasil diperbarui." });
+          }
+        }
+        return outputJson({ success: false, message: "Siswa dengan Nomor QR tersebut tidak ditemukan." });
+      }
+
+      case "hapusSiswa": {
+        const nomorQr = asText(body.nomorQr).toLowerCase();
+        if (!nomorQr) return outputJson({ success: false, message: "Nomor QR kosong." });
+
+        const sheetSiswa = getSpreadsheet().getSheetByName(SHEET_DATA_SISWA);
+        if (!sheetSiswa) return outputJson({ success: false, message: "Sheet '" + SHEET_DATA_SISWA + "' tidak ditemukan." });
+
+        const values = sheetSiswa.getDataRange().getValues();
+        const headers = values[0].map(h => asText(h).toLowerCase().replace(/\s+/g, ""));
+        const qrCol = headers.findIndex(h => h === "nomorqr" || h === "noqr" || h === "nisn" || h === "nis");
+        if (qrCol < 0) return outputJson({ success: false, message: "Kolom Nomor QR tidak ditemukan di sheet Siswa." });
+
+        for (let i = 1; i < values.length; i++) {
+          if (asText(values[i][qrCol]).toLowerCase() === nomorQr) {
+            sheetSiswa.deleteRow(i + 1);
+            return outputJson({ success: true, message: "Data siswa berhasil dihapus." });
+          }
+        }
+        return outputJson({ success: false, message: "Siswa dengan Nomor QR tersebut tidak ditemukan." });
+      }
+
+      // === REKAP HARIAN (dipakai DashboardView) ===
+      case "getRekapHarian": {
+        const tanggalReq = normalizeDate(body.tanggal || new Date());
+        const kelasFilter = asText(body.kelas || "");
+        const records = getPresensiRows().filter(r => normalizeDate(r.tanggal) === tanggalReq);
+        const filtered = kelasFilter ? records.filter(r => r.kelas.toUpperCase() === kelasFilter.toUpperCase()) : records;
+        const hitung = (st) => filtered.filter(r => r.status === st).length;
+        return outputJson({
+          success: true,
+          data: {
+            hadir: hitung("Hadir"),
+            terlambat: hitung("Terlambat"),
+            izin: hitung("Izin"),
+            sakit: hitung("Sakit"),
+            alpa: hitung("Alpa"),
+            log: filtered.map(r => ({
+              id: r.id, jam: r.jam, nomorQr: r.nomorQr, nama: r.nama,
+              kelas: r.kelas, status: r.status, metode: r.metode, keterangan: r.keterangan
+            }))
+          }
+        });
+      }
+
+      // === REKAP PERIODE (dipakai RekapView) ===
+      case "getRekapPeriode": {
+        const tglAwal = normalizeDate(body.mulai || body.tanggalAwal || body.dari);
+        const tglAkhir = normalizeDate(body.selesai || body.tanggalAkhir || body.sampai);
+        const kelasFilter = asText(body.kelas || "");
+        const daftar = getDaftarSiswa(kelasFilter);
+        const records = getPresensiRows().filter(r => {
+          const t = normalizeDate(r.tanggal);
+          return (!tglAwal || t >= tglAwal) && (!tglAkhir || t <= tglAkhir);
+        });
+        let totalHadir = 0, totalIzin = 0, totalSakit = 0, totalAlpa = 0;
+        const perSiswa = daftar.map(s => {
+          const milik = records.filter(r => r.nomorQr.toLowerCase() === s.nomorQr.toLowerCase());
+          const hadir = milik.filter(r => r.status === "Hadir" || r.status === "Terlambat").length;
+          const izin = milik.filter(r => r.status === "Izin").length;
+          const sakit = milik.filter(r => r.status === "Sakit").length;
+          const alpa = milik.filter(r => r.status === "Alpa").length;
+          totalHadir += hadir; totalIzin += izin; totalSakit += sakit; totalAlpa += alpa;
+          const persenHadir = milik.length > 0 ? Math.round((hadir / milik.length) * 100) : 0;
+          return { nomorQr: s.nomorQr, nama: s.nama, hadir, izin, sakit, alpa, persenHadir };
+        });
+        return outputJson({ success: true, data: { totalHadir, totalIzin, totalSakit, totalAlpa, perSiswa } });
+      }
+
+      case "getAdminUsers": {
+        // Hanya untuk kebutuhan UI login — tanpa password.
+        const users = getAdminUsers().map(u => ({ username: u.username, nama: u.nama, role: u.role }));
+        return outputJson({ success: true, data: users });
+      }
+
+            case "simpanPresensi": {
         const nomorQr = asText(body.nomorQr);
         if (!nomorQr) return outputJson({ success: false, message: "Nomor QR kosong." });
 
