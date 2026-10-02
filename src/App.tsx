@@ -17,6 +17,42 @@ import { getSession, clearSession, saveSession } from './services/api';
 import { supabase } from './lib/supabase';
 import { UserSession } from './types';
 
+interface PresensiErrorBoundaryState {
+  error: Error | null;
+}
+
+class PresensiErrorBoundary extends React.Component<React.PropsWithChildren, PresensiErrorBoundaryState> {
+  state: PresensiErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): PresensiErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('PresensiView gagal dirender:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div role="alert" className="mx-auto max-w-2xl rounded-lg border border-rose-300 bg-white p-6 text-slate-800">
+          <h1 className="text-lg font-bold">Tampilan presensi mengalami kendala</h1>
+          <p className="mt-2 text-sm text-rose-700">{this.state.error.message}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Muat ulang aplikasi
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<UserSession | null>(null);
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -131,7 +167,11 @@ export default function App() {
             </div>
 
             {currentTab === 'dashboard' && <DashboardView onNavigate={setCurrentTab} userRole={user?.role} />}
-            {currentTab === 'presensi' && <PresensiView />}
+            {currentTab === 'presensi' && (
+              <PresensiErrorBoundary>
+                <PresensiView />
+              </PresensiErrorBoundary>
+            )}
             {currentTab === 'presensi-mapel' && <PresensiMapelView guruNama={user?.nama || user?.username || 'Guru'} />}
             {currentTab === 'rekap' && <RekapView userRole={user?.role} />}
             {currentTab === 'siswa' && <SiswaView />}
