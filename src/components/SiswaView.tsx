@@ -192,9 +192,20 @@ export const SiswaView: React.FC = () => {
     }
   };
 
+  // Pencarian toleran: abaikan besar/kecil huruf, spasi berlebih, dan tanda baca
+  // (mis. "8.G" vs "8 G", "abdul rahman" vs "AbdulRahman") supaya hasil tidak
+  // kosong hanya karena perbedaan format penulisan.
+  const normalizeSearch = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
   const filtered = siswaList.filter(s => {
-    const q = searchQuery.toLowerCase();
-    return s.nama.toLowerCase().includes(q) || s.nomorQr.toLowerCase().includes(q);
+    const q = normalizeSearch(searchQuery);
+    if (!q) return true;
+    return (
+      normalizeSearch(s.nama).includes(q) ||
+      normalizeSearch(s.nomorQr).includes(q) ||
+      normalizeSearch(s.kelas).includes(q)
+    );
   });
 
   const getTemplateImage = (student: Siswa) => {
