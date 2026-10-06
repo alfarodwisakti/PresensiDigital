@@ -440,23 +440,77 @@ function outputJson(data) {
 }
 
 function kirimWaOrtu(nama, status, noHp, jam) {
-  // Format nomor HP
-  if (noHp.startsWith("0")) noHp = "62" + noHp.slice(1);
-  if (noHp.startsWith("+")) noHp = noHp.slice(1);
+  const rawNoHp = asText(noHp);
+  if (!rawNoHp) {
+    Logger.log("GAGAL KIRIM WA: Nomor HP wali murid kosong.");
+    return false;
+  }
 
-  const pesan = `Yth. Wali Murid,\n\nAnak Anda *${nama}* telah presensi *\${status}* pada jam ${jam}.\n\nTerima kasih.\n- Class Digital SMPN 18 Padang`;
+  let normalized = rawNoHp.replace(/\s+/g, "");
+  normalized = normalized.replace(/[()\-.]/g, "");
+
+  if (!normalized) {
+    Logger.log("GAGAL KIRIM WA: Nomor HP wali murid invalid setelah dibersihkan.");
+    return false;
+  }
+
+  const hasPlusPrefix = normalized.startsWith("+");
+  if (hasPlusPrefix) normalized = normalized.slice(1);
+  if (normalized.startsWith("00")) normalized = normalized.slice(2);
+
+  const digitsOnly = normalized.replace(/\D/g, "");
+  if (!digitsOnly) {
+    Logger.log("GAGAL KIRIM WA: Tidak ada angka pada nomor HP wali murid.");
+    return false;
+  }
+
+  let target = digitsOnly;
+  let countryCode = undefined;
+
+  if (digitsOnly.startsWith("0")) {
+    // Simpan format lokal seperti 0812... sesuai data sheet, jangan diubah jadi 62812...
+    target = digitsOnly;
+    countryCode = "62";
+  } else if (digitsOnly.startsWith("62")) {
+    target = digitsOnly;
+    countryCode = "62";
+  } else if (digitsOnly.startsWith("1") && digitsOnly.length >= 10) {
+    // Format nomor AS: +1 / 1...
+    target = digitsOnly;
+    countryCode = "1";
+  } else if (hasPlusPrefix && digitsOnly.length >= 8) {
+    target = digitsOnly;
+  }
+
+  const pesan = "Yth. Wali Murid,\n\nAnak Anda *" + nama + "* telah presensi *" + status + "* pada jam " + jam + ".\n\nTerima kasih.\n- Class Digital SMPN 18 Padang";
+
+  const payload = {
+    target: target,
+    message: pesan,
+    countryCode: countryCode
+  };
 
   const options = {
-    'method': 'post',
-    'headers': { 'Authorization': WA_TOKEN },
-    'payload': { 'target': noHp, 'message': pesan, 'countryCode': '62' },
-    'mute': true
+    method: 'post',
+    headers: { Authorization: WA_TOKEN },
+    payload: payload,
+    muteHttpExceptions: true,
+    followRedirects: true
   };
 
   try {
-    const res = UrlFetchApp.fetch(WA_URL, options);
-    Logger.log("Respon Fonnte: " + res.getContentText());
+    const response = UrlFetchApp.fetch(WA_URL, options);
+    const body = response.getContentText();
+    Logger.log("Respon Fonnte: " + body);
+    const hasSuccessStatus = body && (
+      body.indexOf('"status":true') >= 0 ||
+      body.indexOf('"status": "true"') >= 0 ||
+      body.indexOf('"status":"true"') >= 0 ||
+      body.indexOf('"success":true') >= 0
+    );
+    return Boolean(hasSuccessStatus);
   } catch (e) {
     Logger.log("Error Kirim WA: " + e.toString());
+    return false;
   }
 }
