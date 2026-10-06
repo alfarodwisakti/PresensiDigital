@@ -7,8 +7,18 @@ const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_KELAS = "8.G";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
-const WA_TOKEN = "JhoAvrvGXDPYWGRMX7Ng"; 
+// Isi token terbaru dari Fonnte Dashboard > Device > Token
+// lalu simpan di Script Properties dengan nama: WA_TOKEN
+const WA_TOKEN = PropertiesService.getScriptProperties().getProperty("WA_TOKEN") || "";
 const WA_URL = "https://api.fonnte.com/send";
+
+function ensureWaToken() {
+  if (!WA_TOKEN) {
+    Logger.log("WA_TOKEN kosong. Isi Script Properties > WA_TOKEN dengan token dari Fonnte Device.");
+    return false;
+  }
+  return true;
+}
 
 function getSpreadsheet() {
   if (!SPREADSHEET_ID) throw new Error("Spreadsheet ID tidak ditemukan.");
@@ -440,15 +450,18 @@ function outputJson(data) {
 }
 
 function kirimWaOrtu(nama, status, noHp, jam) {
+  if (!ensureWaToken()) {
+    Logger.log("GAGAL KIRIM WA: Token Fonnte belum diisi.");
+    return false;
+  }
+
   const rawNoHp = asText(noHp);
   if (!rawNoHp) {
     Logger.log("GAGAL KIRIM WA: Nomor HP wali murid kosong.");
     return false;
   }
 
-  let normalized = rawNoHp.replace(/\s+/g, "");
-  normalized = normalized.replace(/[()\-.]/g, "");
-
+  let normalized = rawNoHp.replace(/\s+/g, "").replace(/[()\-.]/g, "");
   if (!normalized) {
     Logger.log("GAGAL KIRIM WA: Nomor HP wali murid invalid setelah dibersihkan.");
     return false;
@@ -458,37 +471,35 @@ function kirimWaOrtu(nama, status, noHp, jam) {
   if (hasPlusPrefix) normalized = normalized.slice(1);
   if (normalized.startsWith("00")) normalized = normalized.slice(2);
 
-  const digitsOnly = normalized.replace(/\D/g, "");
+  let digitsOnly = normalized.replace(/\D/g, "");
   if (!digitsOnly) {
     Logger.log("GAGAL KIRIM WA: Tidak ada angka pada nomor HP wali murid.");
     return false;
   }
 
   let target = digitsOnly;
-  let countryCode = undefined;
+  let countryCode = "";
 
   if (digitsOnly.startsWith("0")) {
-    // Simpan format lokal seperti 0812... sesuai data sheet, jangan diubah jadi 62812...
-    target = digitsOnly;
-    countryCode = "62";
+    // Di sheet boleh 0812..., tapi Fonnte memerlukan format full international tanpa 0 depan.
+    target = "62" + digitsOnly.slice(1);
   } else if (digitsOnly.startsWith("62")) {
     target = digitsOnly;
-    countryCode = "62";
   } else if (digitsOnly.startsWith("1") && digitsOnly.length >= 10) {
-    // Format nomor AS: +1 / 1...
+    // Format nomor AS seperti +1...
     target = digitsOnly;
     countryCode = "1";
-  } else if (hasPlusPrefix && digitsOnly.length >= 8) {
-    target = digitsOnly;
   }
 
   const pesan = "Yth. Wali Murid,\n\nAnak Anda *" + nama + "* telah presensi *" + status + "* pada jam " + jam + ".\n\nTerima kasih.\n- Class Digital SMPN 18 Padang";
 
   const payload = {
     target: target,
-    message: pesan,
-    countryCode: countryCode
+    message: pesan
   };
+  if (countryCode) payload.countryCode = countryCode;
+
+  Logger.log("Kirim WA target=" + target + " countryCode=" + (countryCode || "(none)"));
 
   const options = {
     method: 'post',
@@ -502,13 +513,18 @@ function kirimWaOrtu(nama, status, noHp, jam) {
     const response = UrlFetchApp.fetch(WA_URL, options);
     const body = response.getContentText();
     Logger.log("Respon Fonnte: " + body);
-    const hasSuccessStatus = body && (
-      body.indexOf('"status":true') >= 0 ||
-      body.indexOf('"status": "true"') >= 0 ||
-      body.indexOf('"status":"true"') >= 0 ||
-      body.indexOf('"success":true') >= 0
+
+    const parsed = (() => {
+      try { return JSON.parse(body); } catch (e) { return null; }
+    })();
+
+    const success = !!(
+      (parsed && (parsed.status === true || parsed.status === "true" || parsed.success === true || parsed.code === 200 || parsed.code === "200")) ||
+      (typeof body === "string" && body.toLowerCase().indexOf("success") >= 0 && body.toLowerCase().indexOf("true") >= 0) ||
+      response.getResponseCode() === 200
     );
-    return Boolean(hasSuccessStatus);
+
+    return success;
   } catch (e) {
     Logger.log("Error Kirim WA: " + e.toString());
     return false;
