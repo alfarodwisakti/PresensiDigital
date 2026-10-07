@@ -609,6 +609,16 @@ function setupWaNotifikasi() {
   return hasil.join("\n");
 }
 
+// Jalankan sekali dari editor Apps Script untuk memberikan izin HTTP keluar.
+// Panggilan GET ini tidak mengirim pesan dan tidak menggunakan token Fonnte.
+function authorizeUrlFetchAccess() {
+  const response = UrlFetchApp.fetch("https://www.google.com/generate_204", {
+    method: "get",
+    muteHttpExceptions: true
+  });
+  Logger.log("Izin UrlFetchApp aktif. HTTP " + response.getResponseCode());
+}
+
 // Ambil header mentah sheet Siswa (untuk pesan diagnosis).
 function getSiswaHeaders() {
   try {
