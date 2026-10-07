@@ -286,6 +286,11 @@ export const PresensiView: React.FC = () => {
     });
 
     if (res.success) {
+      if (res.duplicate) {
+        showNotification(res.message || "Siswa sudah presensi hari ini. WhatsApp tidak dikirim ulang.", true);
+        return res;
+      }
+
       if (playSuccessSound) {
         playBeep(true);
       }

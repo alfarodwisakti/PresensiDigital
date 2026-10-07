@@ -96,7 +96,23 @@ function normalizeSiswaRecord(student: any): Siswa {
     ""
   ).trim();
   const barcode = String(student?.barcode ?? nomorQr).trim();
-  const noOrtu = String(student?.noOrtu ?? student?.["no_ortu"] ?? student?.["No Ortu"] ?? student?.["nohp"] ?? "").trim();
+  const noOrtu = String(
+    student?.noOrtu ||
+    student?.["no_ortu"] ||
+    student?.["No Ortu"] ||
+    student?.nohp ||
+    student?.noHp ||
+    student?.nomorHp ||
+    student?.noWa ||
+    student?.["No HP Orang Tua"] ||
+    student?.["Nomor HP Orang Tua"] ||
+    student?.["Nomor WA Orang Tua"] ||
+    student?.["WhatsApp Orang Tua"] ||
+    student?.["No WhatsApp Orang Tua"] ||
+    student?.["Nomor WhatsApp Orang Tua"] ||
+    student?.["WhatsApp Wali"] ||
+    ""
+  ).trim();
   return {
     nomorQr,
     barcode: barcode || nomorQr,

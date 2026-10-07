@@ -82,7 +82,16 @@ function pickColumnIndex(normRow, candidates) {
 var QR_HEADER_CANDIDATES = ["nomorqr", "noqr", "kodeqr", "qr", "kode", "nisn", "nis", "id"];
 var NAMA_HEADER_CANDIDATES = ["namasiswa", "namalengkap", "nama", "name"];
 var KELAS_HEADER_CANDIDATES = ["ruangankelas", "rombel", "kelas"];
-var ORTU_HEADER_CANDIDATES = ["noortu", "nohportu", "notelp", "notelepon", "hportu", "nohp", "waortu"];
+var ORTU_HEADER_CANDIDATES = [
+  "noortu", "nomorortu", "nohportu", "nomorhportu",
+  "nohporangtua", "nomorhporangtua", "nomorhportua",
+  "nowali", "nomorwali", "nohpwali", "nomorhpwali",
+  "notelp", "nomortelp", "notelepon", "nomortelepon",
+  "hportu", "nohp", "nomorhp", "waortu",
+  "nowaortu", "nomorwaortu", "nowhatsapp", "nomorwhatsapp",
+  "whatsapportu", "whatsapporangtua", "nowhatsapporangtua",
+  "nomorwhatsapporangtua", "whatsappwali", "nomorwhatsappwali"
+];
 
 function readSheetRows(sheetName) {
   const ss = getSpreadsheet();
@@ -267,7 +276,7 @@ function doPost(e) {
           if (h === "barcode") return asText(body.barcode) || nomorQr;
           if (h === "nama") return nama;
           if (h === "kelas") return kelas;
-          if (h === "no_ortu" || h === "noortu" || h === "nohp" || h === "notelepon" || h === "hportu") return noOrtu;
+          if (ORTU_HEADER_CANDIDATES.indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0) return noOrtu;
           return "";
         });
         sheetSiswa.appendRow(rowArr);
@@ -290,7 +299,7 @@ function doPost(e) {
           if (asText(values[i][qrCol]).toLowerCase() === nomorQr) {
             const namaIdx = headers.indexOf("nama");
             const kelasIdx = headers.indexOf("kelas");
-            const ortuIdx = headers.findIndex(h => h === "no_ortu" || h === "noortu" || h === "nohp");
+            const ortuIdx = headers.findIndex(h => ORTU_HEADER_CANDIDATES.indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0);
             if (namaIdx >= 0 && body.nama != null) values[i][namaIdx] = asText(body.nama);
             if (kelasIdx >= 0 && body.kelas != null) values[i][kelasIdx] = asText(body.kelas);
             if (ortuIdx >= 0 && body.noOrtu != null) values[i][ortuIdx] = asText(body.noOrtu);
@@ -402,7 +411,12 @@ function doPost(e) {
         );
 
         if (sudahAbsen) {
-          return outputJson({ success: true, duplicate: true, message: siswa.nama + " sudah absen hari ini." });
+          return outputJson({
+            success: true,
+            duplicate: true,
+            nama: siswa.nama,
+            message: siswa.nama + " sudah presensi hari ini; notifikasi WhatsApp tidak dikirim ulang."
+          });
         }
 
         if (status === "Hadir" && jam.substring(0,5) > JAM_BATAS_TERLAMBAT) status = "Terlambat";
@@ -413,10 +427,11 @@ function doPost(e) {
         sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
 
         // --- PROSES KIRIM WA ---
-        Logger.log("Mencoba kirim WA ke: " + siswa.noOrtu + " (Siswa: " + siswa.nama + ")");
+        const noOrtu = asText(siswa.noOrtu || body.noOrtu || body["no_ortu"] || body["No Ortu"]);
+        Logger.log("Mencoba kirim WA ke nomor wali yang terdaftar (Siswa: " + siswa.nama + ")");
         let whatsapp;
-        if (siswa.noOrtu) {
-          whatsapp = kirimWaOrtu(siswa.nama, status, siswa.noOrtu, jam.substring(0,5));
+        if (noOrtu) {
+          whatsapp = kirimWaOrtu(siswa.nama, status, noOrtu, jam.substring(0,5));
         } else {
           Logger.log("GAGAL KIRIM WA: Kolom No_Ortu kosong untuk siswa " + siswa.nama);
           whatsapp = { success: false, message: "Nomor WhatsApp wali murid tidak tersedia di data siswa." };
