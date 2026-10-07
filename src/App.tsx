@@ -90,16 +90,21 @@ export default function App() {
       };
 
       let mounted = true;
+      let authEventVersion = 0;
       const hydrate = async () => {
+        const requestVersion = authEventVersion;
         try {
           const { data: { session } } = await supabase.auth.getSession();
-          if (mounted) hydrateSupabaseUser(session);
+          if (mounted && authEventVersion === requestVersion) {
+            hydrateSupabaseUser(session);
+          }
         } finally {
           if (mounted) setIsReady(true);
         }
       };
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        authEventVersion += 1;
         if (mounted) hydrateSupabaseUser(session);
       });
 
