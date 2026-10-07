@@ -448,6 +448,57 @@ function outputJson(data) {
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
 
+function normalizeWhatsAppNumber(noHp) {
+  const raw = asText(noHp);
+  const hasPlusPrefix = /^\s*\+/.test(raw);
+  const has00Prefix = /^\s*00/.test(raw);
+  let digits = raw.replace(/\D/g, "");
+
+  if (!digits) {
+    return { success: false, message: "Nomor WhatsApp wali murid tidak berisi angka yang valid." };
+  }
+  if (has00Prefix) digits = digits.slice(2);
+
+  const validIndonesianMobile = (nationalNumber) =>
+    nationalNumber.charAt(0) === "8" && nationalNumber.length >= 9 && nationalNumber.length <= 12;
+
+  if (digits.startsWith("62")) {
+    if (!validIndonesianMobile(digits.slice(2))) {
+      return { success: false, message: "Nomor Indonesia tidak valid. Gunakan format 08... atau 628...." };
+    }
+    return { success: true, target: digits };
+  }
+
+  if (hasPlusPrefix || has00Prefix) {
+    if (digits.startsWith("1") && digits.length === 11) {
+      return { success: true, target: digits, countryCode: "1" };
+    }
+    return {
+      success: false,
+      message: "Format internasional tidak didukung. Gunakan nomor Indonesia 08.../628... atau nomor AS +1.../001...."
+    };
+  }
+
+  if (digits.startsWith("0")) {
+    const nationalNumber = digits.slice(1);
+    if (!validIndonesianMobile(nationalNumber)) {
+      return { success: false, message: "Nomor Indonesia tidak valid. Gunakan format 08... atau 628...." };
+    }
+    return { success: true, target: "62" + nationalNumber };
+  }
+
+  if (validIndonesianMobile(digits)) {
+    // Sheet angka dapat menghilangkan nol pertama dari nomor lokal 08...
+    return { success: true, target: "62" + digits };
+  }
+
+  // A bare leading 1 may have lost its "+" in Sheets, so do not guess the country.
+  return {
+    success: false,
+    message: "Format nomor tidak jelas. Gunakan nomor Indonesia 08... atau 628.... Untuk nomor AS, awali dengan +1 atau 001."
+  };
+}
+
 function kirimWaOrtu(nama, status, noHp, jam) {
   const waToken = getWaToken();
   if (!waToken) {
@@ -461,45 +512,21 @@ function kirimWaOrtu(nama, status, noHp, jam) {
     return { success: false, message: "Nomor WhatsApp wali murid kosong." };
   }
 
-  let normalized = rawNoHp.replace(/\s+/g, "").replace(/[()\-.]/g, "");
-  if (!normalized) {
-    Logger.log("GAGAL KIRIM WA: Nomor HP wali murid invalid setelah dibersihkan.");
-    return { success: false, message: "Nomor WhatsApp wali murid tidak valid." };
-  }
-
-  const hasPlusPrefix = normalized.startsWith("+");
-  if (hasPlusPrefix) normalized = normalized.slice(1);
-  if (normalized.startsWith("00")) normalized = normalized.slice(2);
-
-  let digitsOnly = normalized.replace(/\D/g, "");
-  if (!digitsOnly) {
-    Logger.log("GAGAL KIRIM WA: Tidak ada angka pada nomor HP wali murid.");
-    return { success: false, message: "Nomor WhatsApp wali murid tidak berisi angka yang valid." };
-  }
-
-  let target = digitsOnly;
-  let countryCode = "";
-
-  if (digitsOnly.startsWith("0")) {
-    // Di sheet boleh 0812..., tapi Fonnte memerlukan format full international tanpa 0 depan.
-    target = "62" + digitsOnly.slice(1);
-  } else if (digitsOnly.startsWith("62")) {
-    target = digitsOnly;
-  } else if (digitsOnly.startsWith("1") && digitsOnly.length >= 10) {
-    // Format nomor AS seperti +1...
-    target = digitsOnly;
-    countryCode = "1";
+  const normalized = normalizeWhatsAppNumber(rawNoHp);
+  if (!normalized.success) {
+    Logger.log("GAGAL KIRIM WA: " + normalized.message + " Nilai: " + rawNoHp);
+    return { success: false, message: normalized.message };
   }
 
   const pesan = "Yth. Wali Murid,\n\nAnak Anda *" + nama + "* telah presensi *" + status + "* pada jam " + jam + ".\n\nTerima kasih.\n- Class Digital SMPN 18 Padang";
 
   const payload = {
-    target: target,
+    target: normalized.target,
     message: pesan
   };
-  if (countryCode) payload.countryCode = countryCode;
+  if (normalized.countryCode) payload.countryCode = normalized.countryCode;
 
-  Logger.log("Kirim WA target=" + target + " countryCode=" + (countryCode || "(none)"));
+  Logger.log("Kirim WA target=" + normalized.target + " countryCode=" + (normalized.countryCode || "(none)"));
 
   const options = {
     method: 'post',
