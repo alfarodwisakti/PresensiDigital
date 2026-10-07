@@ -492,10 +492,14 @@ function normalizeWhatsAppNumber(noHp) {
     return { success: true, target: "62" + digits };
   }
 
-  // A bare leading 1 may have lost its "+" in Sheets, so do not guess the country.
+  if (digits.startsWith("1") && digits.length === 11) {
+    // Accept the US country code as digits because Sheets may drop a leading "+".
+    return { success: true, target: digits, countryCode: "1" };
+  }
+
   return {
     success: false,
-    message: "Format nomor tidak jelas. Gunakan nomor Indonesia 08... atau 628.... Untuk nomor AS, awali dengan +1 atau 001."
+    message: "Format nomor tidak valid. Gunakan nomor Indonesia 8.../08.../628... atau nomor AS 1 diikuti 10 digit."
   };
 }
 
