@@ -66,9 +66,8 @@ export const PresensiView: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const [isFullscreenScan, setIsFullscreenScan] = useState(false);
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
-  const [scanResultPopup, setScanResultPopup] = useState<ScanResultPopup | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResultPopup | null>(null);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scanResultPopupRef = useRef(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [zoomSupported, setZoomSupported] = useState(false);
@@ -263,16 +262,6 @@ export const PresensiView: React.FC = () => {
     });
   };
 
-  const openScanResultPopup = (result: ScanResultPopup) => {
-    scanResultPopupRef.current = true;
-    setScanResultPopup(result);
-  };
-
-  const closeScanResultPopup = () => {
-    scanResultPopupRef.current = false;
-    setScanResultPopup(null);
-  };
-
   const handleAttendance = async (
     nomorQr: string,
     statusInput: StatusPresensi,
@@ -308,7 +297,7 @@ export const PresensiView: React.FC = () => {
       if (res.duplicate) {
         showNotification(res.message || "Siswa sudah presensi hari ini. WhatsApp tidak dikirim ulang.", true);
         if (metode === "Scan") {
-          openScanResultPopup({
+          setScanResult({
             nama: res.nama || payloadNama,
             attendanceMessage: res.message || "Siswa sudah presensi hari ini.",
             whatsappStatus: "not-sent",
@@ -332,7 +321,7 @@ export const PresensiView: React.FC = () => {
         showNotification(attendanceMessage, false);
       }
       if (metode === "Scan") {
-        openScanResultPopup({
+        setScanResult({
           nama: studentName,
           attendanceMessage: `Presensi ${finalStatus} berhasil dicatat.`,
           whatsappStatus: res.whatsapp
@@ -362,7 +351,7 @@ export const PresensiView: React.FC = () => {
       }
       showNotification(`⚠️ ${res.message || 'Gagal mencatat presensi'} (Nomor: ${nomorQr})`, true);
       if (metode === "Scan") {
-        openScanResultPopup({
+        setScanResult({
           nama: payloadNama,
           attendanceMessage: res.message || "Presensi gagal dicatat.",
           whatsappStatus: "unknown",
@@ -396,7 +385,7 @@ export const PresensiView: React.FC = () => {
         cameraMode,
         qrConfig,
         async (decodedText) => {
-          if (isCooldownRef.current || scanResultPopupRef.current) return;
+          if (isCooldownRef.current) return;
           const cleaned = String(decodedText || "").trim();
           if (!cleaned) return;
 
@@ -970,6 +959,47 @@ export const PresensiView: React.FC = () => {
               </div>
             </div>
           )}
+
+          {scanResult && (
+            <section className={`rounded-xl border p-4 ${
+              scanResult.whatsappStatus === 'sent'
+                ? 'border-emerald-200 bg-emerald-50'
+                : scanResult.whatsappStatus === 'failed' || scanResult.whatsappStatus === 'not-sent'
+                  ? 'border-rose-200 bg-rose-50'
+                  : 'border-amber-200 bg-amber-50'
+            }`} aria-live="polite">
+              <div className="flex items-start gap-3">
+                {scanResult.whatsappStatus === 'sent'
+                  ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                  : scanResult.whatsappStatus === 'failed' || scanResult.whatsappStatus === 'not-sent'
+                    ? <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+                    : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-bold text-slate-900">Hasil Presensi & WhatsApp</h3>
+                  <p className="mt-1 text-xs font-semibold text-slate-700">{scanResult.nama}</p>
+                  <p className="mt-2 text-sm text-slate-700">{scanResult.attendanceMessage}</p>
+                  <p className={`mt-2 text-sm font-bold ${
+                    scanResult.whatsappStatus === 'sent'
+                      ? 'text-emerald-800'
+                      : scanResult.whatsappStatus === 'failed' || scanResult.whatsappStatus === 'not-sent'
+                        ? 'text-rose-800'
+                        : 'text-amber-800'
+                  }`}>
+                    WhatsApp: {
+                      scanResult.whatsappStatus === 'sent'
+                        ? 'Diterima Fonnte'
+                        : scanResult.whatsappStatus === 'failed'
+                          ? 'Gagal dikirim'
+                          : scanResult.whatsappStatus === 'not-sent'
+                            ? 'Tidak dikirim ulang'
+                            : 'Belum dapat dipastikan'
+                    }
+                  </p>
+                  <p className="mt-1 break-words text-xs leading-relaxed text-slate-600">{scanResult.whatsappMessage}</p>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
 
         {/* Right Area: Session Logs */}
@@ -1013,65 +1043,6 @@ export const PresensiView: React.FC = () => {
         </div>
       </div>
 
-      {scanResultPopup && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
-          <section
-            aria-labelledby="scan-result-title"
-            aria-modal="true"
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
-            role="dialog"
-          >
-            <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full ${
-              scanResultPopup.whatsappStatus === 'sent'
-                ? 'bg-emerald-100 text-emerald-700'
-                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
-                  ? 'bg-rose-100 text-rose-700'
-                  : 'bg-amber-100 text-amber-700'
-            }`}>
-              {scanResultPopup.whatsappStatus === 'sent'
-                ? <CheckCircle2 className="h-7 w-7" />
-                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
-                  ? <XCircle className="h-7 w-7" />
-                  : <AlertTriangle className="h-7 w-7" />}
-            </div>
-            <h2 id="scan-result-title" className="text-center text-lg font-bold text-slate-900">
-              Hasil Presensi & WhatsApp
-            </h2>
-            <p className="mt-1 text-center text-sm font-semibold text-slate-700">{scanResultPopup.nama}</p>
-            <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-              {scanResultPopup.attendanceMessage}
-            </p>
-            <div className={`mt-3 rounded-xl border p-3 ${
-              scanResultPopup.whatsappStatus === 'sent'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
-                  ? 'border-rose-200 bg-rose-50 text-rose-800'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
-            }`}>
-              <p className="text-sm font-bold">
-                WhatsApp: {
-                  scanResultPopup.whatsappStatus === 'sent'
-                    ? 'Diterima Fonnte'
-                    : scanResultPopup.whatsappStatus === 'failed'
-                      ? 'Gagal dikirim'
-                      : scanResultPopup.whatsappStatus === 'not-sent'
-                        ? 'Tidak dikirim ulang'
-                        : 'Belum dapat dipastikan'
-                }
-              </p>
-              <p className="mt-1 text-xs leading-relaxed">{scanResultPopup.whatsappMessage}</p>
-            </div>
-            <button
-              autoFocus
-              className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
-              onClick={closeScanResultPopup}
-              type="button"
-            >
-              Tutup
-            </button>
-          </section>
-        </div>
-      )}
     </div>
   );
 };
