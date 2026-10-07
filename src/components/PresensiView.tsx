@@ -291,7 +291,14 @@ export const PresensiView: React.FC = () => {
       }
       const studentName = res.nama || "Siswa";
       const finalStatus = res.status || statusInput;
-      showNotification(`✅ Presensi Berhasil: ${studentName} (${nomorQr}) — Status: ${finalStatus}`, false);
+      const attendanceMessage = `✅ Presensi Berhasil: ${studentName} (${nomorQr}) — Status: ${finalStatus}`;
+      if (res.whatsapp && !res.whatsapp.success) {
+        showNotification(`${attendanceMessage} · ⚠️ WhatsApp tidak terkirim: ${res.whatsapp.message}`, true);
+      } else if (res.whatsapp?.success) {
+        showNotification(`${attendanceMessage} · WhatsApp masuk antrean Fonnte.`, false);
+      } else {
+        showNotification(attendanceMessage, false);
+      }
       
       setSessionLogs(prev => [
         {

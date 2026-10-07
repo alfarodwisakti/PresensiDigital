@@ -80,5 +80,9 @@ export interface ApiResponse<T = any> {
   saved?: number;
   skipped?: string[];
   duplicate?: boolean;
+  whatsapp?: {
+    success: boolean;
+    message: string;
+  };
   offline?: boolean;
 }

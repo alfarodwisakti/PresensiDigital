@@ -412,17 +412,23 @@ function doPost(e) {
         const sheetPresensi = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
         sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
 
-        response = { success: true, message: "Berhasil", nama: siswa.nama, status: status };
-
         // --- PROSES KIRIM WA ---
         Logger.log("Mencoba kirim WA ke: " + siswa.noOrtu + " (Siswa: " + siswa.nama + ")");
-        
+        let whatsapp;
         if (siswa.noOrtu) {
-          kirimWaOrtu(siswa.nama, status, siswa.noOrtu, jam.substring(0,5));
+          whatsapp = kirimWaOrtu(siswa.nama, status, siswa.noOrtu, jam.substring(0,5));
         } else {
           Logger.log("GAGAL KIRIM WA: Kolom No_Ortu kosong untuk siswa " + siswa.nama);
+          whatsapp = { success: false, message: "Nomor WhatsApp wali murid tidak tersedia di data siswa." };
         }
-        
+
+        response = {
+          success: true,
+          message: "Berhasil",
+          nama: siswa.nama,
+          status: status,
+          whatsapp: whatsapp
+        };
         break;
       }
       
@@ -446,19 +452,19 @@ function kirimWaOrtu(nama, status, noHp, jam) {
   const waToken = getWaToken();
   if (!waToken) {
     Logger.log("GAGAL KIRIM WA: Token Fonnte belum diisi.");
-    return false;
+    return { success: false, message: "Token Fonnte tidak ditemukan di Script Properties (WA_TOKEN)." };
   }
 
   const rawNoHp = asText(noHp);
   if (!rawNoHp) {
     Logger.log("GAGAL KIRIM WA: Nomor HP wali murid kosong.");
-    return false;
+    return { success: false, message: "Nomor WhatsApp wali murid kosong." };
   }
 
   let normalized = rawNoHp.replace(/\s+/g, "").replace(/[()\-.]/g, "");
   if (!normalized) {
     Logger.log("GAGAL KIRIM WA: Nomor HP wali murid invalid setelah dibersihkan.");
-    return false;
+    return { success: false, message: "Nomor WhatsApp wali murid tidak valid." };
   }
 
   const hasPlusPrefix = normalized.startsWith("+");
@@ -468,7 +474,7 @@ function kirimWaOrtu(nama, status, noHp, jam) {
   let digitsOnly = normalized.replace(/\D/g, "");
   if (!digitsOnly) {
     Logger.log("GAGAL KIRIM WA: Tidak ada angka pada nomor HP wali murid.");
-    return false;
+    return { success: false, message: "Nomor WhatsApp wali murid tidak berisi angka yang valid." };
   }
 
   let target = digitsOnly;
@@ -506,21 +512,26 @@ function kirimWaOrtu(nama, status, noHp, jam) {
   try {
     const response = UrlFetchApp.fetch(WA_URL, options);
     const body = response.getContentText();
-    Logger.log("Respon Fonnte: " + body);
-
     const parsed = (() => {
       try { return JSON.parse(body); } catch (e) { return null; }
     })();
+    const responseCode = response.getResponseCode();
+    const accepted = responseCode >= 200 && responseCode < 300 && parsed &&
+      (parsed.status === true || parsed.status === "true" || parsed.success === true);
 
-    const success = !!(
-      (parsed && (parsed.status === true || parsed.status === "true" || parsed.success === true || parsed.code === 200 || parsed.code === "200")) ||
-      (typeof body === "string" && body.toLowerCase().indexOf("success") >= 0 && body.toLowerCase().indexOf("true") >= 0) ||
-      response.getResponseCode() === 200
-    );
+    if (accepted) {
+      Logger.log("Fonnte menerima permintaan WhatsApp. HTTP " + responseCode);
+      return { success: true, message: "Permintaan diterima Fonnte." };
+    }
 
-    return success;
+    const apiMessage = parsed && (parsed.reason || parsed.message || parsed.error);
+    const message = apiMessage
+      ? "Fonnte menolak permintaan: " + String(apiMessage)
+      : "Fonnte memberi respons yang tidak menandakan sukses (HTTP " + responseCode + ").";
+    Logger.log("GAGAL KIRIM WA: " + message);
+    return { success: false, message: message };
   } catch (e) {
     Logger.log("Error Kirim WA: " + e.toString());
-    return false;
+    return { success: false, message: "Permintaan ke Fonnte gagal: " + e.toString() };
   }
 }
