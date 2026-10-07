@@ -39,6 +39,13 @@ interface ScanFeedback {
   message: string;
 }
 
+interface ScanResultPopup {
+  nama: string;
+  attendanceMessage: string;
+  whatsappStatus: 'sent' | 'failed' | 'unknown' | 'not-sent';
+  whatsappMessage: string;
+}
+
 export const PresensiView: React.FC = () => {
   const scanSoundUrl = new URL('../../store-scanner-beep-sound-effect.mp3', import.meta.url).href;
 
@@ -59,7 +66,9 @@ export const PresensiView: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const [isFullscreenScan, setIsFullscreenScan] = useState(false);
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+  const [scanResultPopup, setScanResultPopup] = useState<ScanResultPopup | null>(null);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanResultPopupRef = useRef(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [zoomSupported, setZoomSupported] = useState(false);
@@ -254,6 +263,16 @@ export const PresensiView: React.FC = () => {
     });
   };
 
+  const openScanResultPopup = (result: ScanResultPopup) => {
+    scanResultPopupRef.current = true;
+    setScanResultPopup(result);
+  };
+
+  const closeScanResultPopup = () => {
+    scanResultPopupRef.current = false;
+    setScanResultPopup(null);
+  };
+
   const handleAttendance = async (
     nomorQr: string,
     statusInput: StatusPresensi,
@@ -288,6 +307,14 @@ export const PresensiView: React.FC = () => {
     if (res.success) {
       if (res.duplicate) {
         showNotification(res.message || "Siswa sudah presensi hari ini. WhatsApp tidak dikirim ulang.", true);
+        if (metode === "Scan") {
+          openScanResultPopup({
+            nama: res.nama || payloadNama,
+            attendanceMessage: res.message || "Siswa sudah presensi hari ini.",
+            whatsappStatus: "not-sent",
+            whatsappMessage: "Pesan WhatsApp tidak dikirim ulang untuk presensi yang sudah tercatat."
+          });
+        }
         return res;
       }
 
@@ -303,6 +330,20 @@ export const PresensiView: React.FC = () => {
         showNotification(`${attendanceMessage} · WhatsApp masuk antrean Fonnte.`, false);
       } else {
         showNotification(attendanceMessage, false);
+      }
+      if (metode === "Scan") {
+        openScanResultPopup({
+          nama: studentName,
+          attendanceMessage: `Presensi ${finalStatus} berhasil dicatat.`,
+          whatsappStatus: res.whatsapp
+            ? (res.whatsapp.success ? "sent" : "failed")
+            : "unknown",
+          whatsappMessage: res.whatsapp
+            ? (res.whatsapp.success
+              ? "Permintaan pesan diterima Fonnte dan masuk antrean. Status diterima di ponsel wali belum dikonfirmasi."
+              : res.whatsapp.message || "Fonnte menolak permintaan pengiriman.")
+            : "Server tidak mengirim status WhatsApp. Pastikan Apps Script versi terbaru sudah di-deploy."
+        });
       }
       
       setSessionLogs(prev => [
@@ -320,6 +361,14 @@ export const PresensiView: React.FC = () => {
         playBeep(false);
       }
       showNotification(`⚠️ ${res.message || 'Gagal mencatat presensi'} (Nomor: ${nomorQr})`, true);
+      if (metode === "Scan") {
+        openScanResultPopup({
+          nama: payloadNama,
+          attendanceMessage: res.message || "Presensi gagal dicatat.",
+          whatsappStatus: "unknown",
+          whatsappMessage: "Status pengiriman WhatsApp tidak dapat dipastikan karena presensi gagal diproses."
+        });
+      }
     }
     return res;
   };
@@ -347,7 +396,7 @@ export const PresensiView: React.FC = () => {
         cameraMode,
         qrConfig,
         async (decodedText) => {
-          if (isCooldownRef.current) return;
+          if (isCooldownRef.current || scanResultPopupRef.current) return;
           const cleaned = String(decodedText || "").trim();
           if (!cleaned) return;
 
@@ -963,6 +1012,66 @@ export const PresensiView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {scanResultPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" role="presentation">
+          <section
+            aria-labelledby="scan-result-title"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            role="dialog"
+          >
+            <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full ${
+              scanResultPopup.whatsappStatus === 'sent'
+                ? 'bg-emerald-100 text-emerald-700'
+                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
+                  ? 'bg-rose-100 text-rose-700'
+                  : 'bg-amber-100 text-amber-700'
+            }`}>
+              {scanResultPopup.whatsappStatus === 'sent'
+                ? <CheckCircle2 className="h-7 w-7" />
+                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
+                  ? <XCircle className="h-7 w-7" />
+                  : <AlertTriangle className="h-7 w-7" />}
+            </div>
+            <h2 id="scan-result-title" className="text-center text-lg font-bold text-slate-900">
+              Hasil Presensi & WhatsApp
+            </h2>
+            <p className="mt-1 text-center text-sm font-semibold text-slate-700">{scanResultPopup.nama}</p>
+            <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+              {scanResultPopup.attendanceMessage}
+            </p>
+            <div className={`mt-3 rounded-xl border p-3 ${
+              scanResultPopup.whatsappStatus === 'sent'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                : scanResultPopup.whatsappStatus === 'failed' || scanResultPopup.whatsappStatus === 'not-sent'
+                  ? 'border-rose-200 bg-rose-50 text-rose-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}>
+              <p className="text-sm font-bold">
+                WhatsApp: {
+                  scanResultPopup.whatsappStatus === 'sent'
+                    ? 'Diterima Fonnte'
+                    : scanResultPopup.whatsappStatus === 'failed'
+                      ? 'Gagal dikirim'
+                      : scanResultPopup.whatsappStatus === 'not-sent'
+                        ? 'Tidak dikirim ulang'
+                        : 'Belum dapat dipastikan'
+                }
+              </p>
+              <p className="mt-1 text-xs leading-relaxed">{scanResultPopup.whatsappMessage}</p>
+            </div>
+            <button
+              autoFocus
+              className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+              onClick={closeScanResultPopup}
+              type="button"
+            >
+              Tutup
+            </button>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
