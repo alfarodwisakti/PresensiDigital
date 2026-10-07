@@ -7,10 +7,23 @@ const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_KELAS = "8.G";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
+// CATATAN DEPLOY: Web App Apps Script menjalankan SALINAN kode pada saat
+// "Deploy > New deployment / Manage deployments" dibuat. Konstanta yang diubah
+// di editor sumber TIDAK berlaku sampai redeploy. Karena itu WA_URL & token
+// dibaca lewat fungsi + Script Properties (lihat getWaUrl/getWaToken) agar
+// bisa dikoreksi tanpa deploy ulang, dan tersedia setupWaNotifikasi() untuk
+// mendiagnosis penyebab "pesan scan tidak terkirim ke orang tua".
 const WA_URL = "https://api.fonnte.com/send";
 
+function getWaUrl() {
+  const stored = asText(PropertiesService.getScriptProperties().getProperty("WA_URL"));
+  return stored || WA_URL;
+}
+
 function getWaToken() {
-  return PropertiesService.getScriptProperties().getProperty("WA_TOKEN");
+  // WA_TOKEN adalah nama kunci lama; FONNTE_TOKEN dipakai sebagai alternatif.
+  const props = PropertiesService.getScriptProperties();
+  return asText(props.getProperty("WA_TOKEN") || props.getProperty("FONNTE_TOKEN"));
 }
 
 function getSpreadsheet() {
@@ -82,7 +95,11 @@ function pickColumnIndex(normRow, candidates) {
 var QR_HEADER_CANDIDATES = ["nomorqr", "noqr", "kodeqr", "qr", "kode", "nisn", "nis", "id"];
 var NAMA_HEADER_CANDIDATES = ["namasiswa", "namalengkap", "nama", "name"];
 var KELAS_HEADER_CANDIDATES = ["ruangankelas", "rombel", "kelas"];
-var ORTU_HEADER_CANDIDATES = [
+// DAFTAR VARIASI NAMA KOLOM NOMOR ORANG TUA/WALI.
+// PENTING: daftar ini juga bisa dioverride lewat Script Properties (key:
+// ORTU_HEADER_CANDIDATES, dipisah koma) supaya bisa disesuaikan TANPA deploy
+// ulang kode — lihat getOrtuHeaderCandidates() dan setupWaNotifikasi().
+var DEFAULT_ORTU_HEADER_CANDIDATES = [
   "noortu", "nomorortu", "nohportu", "nomorhportu",
   "nohporangtua", "nomorhporangtua", "nomorhportua",
   "nowali", "nomorwali", "nohpwali", "nomorhpwali",
@@ -90,8 +107,32 @@ var ORTU_HEADER_CANDIDATES = [
   "hportu", "nohp", "nomorhp", "waortu",
   "nowaortu", "nomorwaortu", "nowhatsapp", "nomorwhatsapp",
   "whatsapportu", "whatsapporangtua", "nowhatsapporangtua",
-  "nomorwhatsapporangtua", "whatsappwali", "nomorwhatsappwali"
+  "nomorwhatsapporangtua", "whatsappwali", "nomorwhatsappwali",
+  // variasi lain yang umum dipakai di sheet sekolah
+  "kontak", "nomorkontak", "kontakortu", "nohportu",
+  "nomorhandphone", "nohandphone", "telepon", "telephone", "nomorteleponortu"
 ];
+
+// Baca daftar kandidat kolom nomor ortu. Prioritas: Script Properties
+// (langsung berlaku tanpa deploy ulang) -> konstanta default di sumber ini.
+function getOrtuHeaderCandidates() {
+  var stored = "";
+  try {
+    stored = asText(PropertiesService.getScriptProperties().getProperty("ORTU_HEADER_CANDIDATES"));
+  } catch (e) {
+    stored = "";
+  }
+  if (stored) {
+    var list = stored.split(",").map(function (s) {
+      return asText(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+    }).filter(function (s) { return s !== ""; });
+    if (list.length > 0) return list;
+  }
+  return DEFAULT_ORTU_HEADER_CANDIDATES.slice();
+}
+
+// Nama variabel lama tetap dipertahankan agar tidak ada kode yang tertinggal.
+var ORTU_HEADER_CANDIDATES = DEFAULT_ORTU_HEADER_CANDIDATES;
 
 function readSheetRows(sheetName) {
   const ss = getSpreadsheet();
@@ -121,7 +162,7 @@ function readSheetRows(sheetName) {
   const qrCol = pickColumnIndex(normHeader, QR_HEADER_CANDIDATES);
   const namaCol = pickColumnIndex(normHeader, NAMA_HEADER_CANDIDATES);
   const kelasCol = pickColumnIndex(normHeader, KELAS_HEADER_CANDIDATES);
-  const ortuCol = pickColumnIndex(normHeader, ORTU_HEADER_CANDIDATES);
+  const ortuCol = pickColumnIndex(normHeader, getOrtuHeaderCandidates());
   const idCol = pickColumnIndex(normHeader, ["id"]);
 
   // Bangun objek per baris dengan key kanonik + key header mentah (fallback).
@@ -212,10 +253,22 @@ function parseRequestBody(payload) {
 }
 
 function doGet(e) {
+  // PENTING: Web App Apps Script yang ter-deploy menjalankan SALINAN kode pada
+  // saat deployment dibuat. Jika pesan WA ke orang tua tidak terkirim padahal
+  // kode di editor sudah benar, hampir pasti deployment masih memakai versi
+  // lama: Deploy > Manage deployments > edit > Version "New version" > Deploy.
+  // Cek juga "Execute as: Me" dan "Who has access: Anyone".
+  const waToken = getWaToken();
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
     message: "Backend Aktif. Sheet target: " + SHEET_DATA_SISWA,
-    spreadsheetId: SPREADSHEET_ID
+    spreadsheetId: SPREADSHEET_ID,
+    // Diagnostik cepat notifikasi WhatsApp (tanpa membocorkan token):
+    whatsappReady: !!waToken,
+    whatsappNote: waToken
+      ? "Token Fonnte terdeteksi. Pastikan nomor wali terisi di kolom No_Ortu sheet Siswa."
+      : "PERINGATAN: WA_TOKEN belum diisi di Script Properties sehingga pesan scan TIDAK akan terkirim ke orang tua.",
+    timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -260,8 +313,12 @@ function doPost(e) {
         const nomorQr = asText(body.nomorQr || body["Nomor Qr"] || "");
         const nama = asText(body.nama || body.Nama || "");
         const kelas = asText(body.kelas || body.Kelas || "") || DEFAULT_KELAS;
-        const noOrtu = asText(body.noOrtu || body["no_ortu"] || body["No Ortu"] || "");
+        const noOrtu = asText(body.noOrtu || body["no_ortu"] || body["No Ortu"] || body["Nomor HP Orang Tua"] || "");
         if (!nomorQr || !nama) return outputJson({ success: false, message: "Nomor QR dan Nama wajib diisi." });
+        if (noOrtu) {
+          const cekFormat = normalizeWhatsAppNumber(noOrtu);
+          if (!cekFormat.success) return outputJson({ success: false, message: "Nomor WhatsApp orang tua tidak valid: " + cekFormat.message });
+        }
 
         const sheetSiswa = getSpreadsheet().getSheetByName(SHEET_DATA_SISWA);
         if (!sheetSiswa) return outputJson({ success: false, message: "Sheet '" + SHEET_DATA_SISWA + "' tidak ditemukan. Pastikan nama tab di Google Sheet adalah '" + SHEET_DATA_SISWA + "'." });
@@ -276,7 +333,7 @@ function doPost(e) {
           if (h === "barcode") return asText(body.barcode) || nomorQr;
           if (h === "nama") return nama;
           if (h === "kelas") return kelas;
-          if (ORTU_HEADER_CANDIDATES.indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0) return noOrtu;
+          if (getOrtuHeaderCandidates().indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0) return noOrtu;
           return "";
         });
         sheetSiswa.appendRow(rowArr);
@@ -295,11 +352,16 @@ function doPost(e) {
         const qrCol = headers.findIndex(h => h === "nomorqr" || h === "noqr" || h === "nisn" || h === "nis");
         if (qrCol < 0) return outputJson({ success: false, message: "Kolom Nomor QR tidak ditemukan di sheet Siswa." });
 
+        if (body.noOrtu != null && asText(body.noOrtu) !== "") {
+          const cekFormat = normalizeWhatsAppNumber(asText(body.noOrtu));
+          if (!cekFormat.success) return outputJson({ success: false, message: "Nomor WhatsApp orang tua tidak valid: " + cekFormat.message });
+        }
+
         for (let i = 1; i < values.length; i++) {
           if (asText(values[i][qrCol]).toLowerCase() === nomorQr) {
             const namaIdx = headers.indexOf("nama");
             const kelasIdx = headers.indexOf("kelas");
-            const ortuIdx = headers.findIndex(h => ORTU_HEADER_CANDIDATES.indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0);
+            const ortuIdx = headers.findIndex(h => getOrtuHeaderCandidates().indexOf(h.replace(/[^a-z0-9]/g, "")) >= 0);
             if (namaIdx >= 0 && body.nama != null) values[i][namaIdx] = asText(body.nama);
             if (kelasIdx >= 0 && body.kelas != null) values[i][kelasIdx] = asText(body.kelas);
             if (ortuIdx >= 0 && body.noOrtu != null) values[i][ortuIdx] = asText(body.noOrtu);
@@ -411,10 +473,22 @@ function doPost(e) {
         );
 
         if (sudahAbsen) {
+          // Duplikat scan tetap memberi info status ke frontend. Notifikasi WA
+          // TIDAK dikirim ulang untuk spam, tetapi jika nomor ortu tersedia dan
+          // WA_WA_DUPLIKAT=true di Script Properties, pesan kedua boleh dikirim.
+          const noOrtuDup = asText(siswa.noOrtu || body.noOrtu || "");
+          const kirimDup = asText(PropertiesService.getScriptProperties().getProperty("WA_KIRIM_DUPLIKAT")).toLowerCase() === "true";
+          let whatsappDup;
+          if (kirimDup && noOrtuDup) {
+            whatsappDup = kirimWaOrtu(siswa.nama, "Hadir (scan ulang)", noOrtuDup, normalizeTime(body.jam || new Date()).substring(0,5), normalizeDate(body.tanggal || new Date()));
+          } else if (noOrtuDup) {
+            whatsappDup = { success: false, skipped: true, message: "Sudah presensi hari ini; WhatsApp tidak dikirim ulang." };
+          }
           return outputJson({
             success: true,
             duplicate: true,
             nama: siswa.nama,
+            whatsapp: whatsappDup,
             message: siswa.nama + " sudah presensi hari ini; notifikasi WhatsApp tidak dikirim ulang."
           });
         }
@@ -427,14 +501,16 @@ function doPost(e) {
         sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
 
         // --- PROSES KIRIM WA ---
+        // Sumber nomor: kolom No_Ortu di sheet Siswa (via getDaftarSiswa),
+        // lalu fallback nilai yang dikirim frontend.
         const noOrtu = asText(siswa.noOrtu || body.noOrtu || body["no_ortu"] || body["No Ortu"]);
-        Logger.log("Mencoba kirim WA ke nomor wali yang terdaftar (Siswa: " + siswa.nama + ")");
+        Logger.log("Mencoba kirim WA ke nomor wali yang terdaftar (Siswa: " + siswa.nama + ", NoOrtu: " + (noOrtu ? normalizeWhatsAppNumber(noOrtu).target || "(invalid)" : "(kosong)") + ")");
         let whatsapp;
         if (noOrtu) {
-          whatsapp = kirimWaOrtu(siswa.nama, status, noOrtu, jam.substring(0,5));
+          whatsapp = kirimWaOrtu(siswa.nama, status, noOrtu, jam.substring(0,5), tanggal);
         } else {
           Logger.log("GAGAL KIRIM WA: Kolom No_Ortu kosong untuk siswa " + siswa.nama);
-          whatsapp = { success: false, message: "Nomor WhatsApp wali murid tidak tersedia di data siswa." };
+          whatsapp = { success: false, message: "Nomor WhatsApp wali murid belum diisi di sheet Siswa (kolom No_Ortunya kosong). Isi nomor HP wali, lalu scan ulang." };
         }
 
         response = {
@@ -457,6 +533,93 @@ function doPost(e) {
   }
 
   return outputJson(response);
+}
+
+// === DIAGNOSIS NOTIFIKASI WHATSAPP ===
+// Jalankan fungsi ini dari editor Apps Script (pilih fungsi setupWaNotifikasi
+// lalu Run) ketika "pesan saat scan tidak terkirim ke orang tua". Fungsinya
+// memeriksa seluruh titik kegagalan secara berurutan dan menampilkan hasilnya
+// di Execution Log, plus mengirim satu pesan tes jika memungkinkan.
+function setupWaNotifikasi() {
+  const hasil = [];
+  const props = PropertiesService.getScriptProperties();
+
+  // 1. Token Fonnte
+  const waToken = getWaToken();
+  if (waToken) {
+    hasil.push("OK  : Token Fonnte ditemukan (WA_TOKEN/FONNTE_TOKEN), panjang " + waToken.length + ".");
+  } else {
+    hasil.push("GAGAL: WA_TOKEN belum diisi. Buka Project Settings (ikon roda gigi) > Script Properties > Tambah property bernama WA_TOKEN dengan token dari fonnte.com/dashboard/#account/apikey, lalu jalankan fungsi ini lagi.");
+  }
+
+  // 2. Akses spreadsheet & sheet Siswa
+  let daftarSiswa = [];
+  try {
+    const ss = getSpreadsheet();
+    hasil.push("OK  : Spreadsheet '" + ss.getName() + "' dapat diakses.");
+    const sheetSiswa = ss.getSheetByName(SHEET_DATA_SISWA);
+    if (!sheetSiswa) {
+      hasil.push("GAGAL: Sheet '" + SHEET_DATA_SISWA + "' tidak ditemukan — tidak ada data siswa/noOrtu sama sekali.");
+    } else {
+      daftarSiswa = getDaftarSiswa();
+      hasil.push("OK  : Sheet '" + SHEET_DATA_SISWA + "' terbaca, jumlah siswa: " + daftarSiswa.length + ".");
+    }
+  } catch (e) {
+    hasil.push("GAGAL: Spreadsheet tidak bisa dibuka: " + e);
+  }
+
+  // 3. Kolom nomor ortu: terdeteksi atau tidak?
+  if (daftarSiswa.length > 0) {
+    const punyaNomor = daftarSiswa.filter(function (s) { return asText(s.noOrtu) !== ""; });
+    if (punyaNomor.length === 0) {
+      hasil.push("GAGAL: Tidak ada satu pun siswa yang punya nomor ortu. Kemungkinan penyebabnya:");
+      hasil.push("       a) Kolom nomor wali di sheet Siswa masih KOSONG — isi dulu nomornya; atau");
+      hasil.push("       b) Nama kolomnya tidak dikenali. Header saat ini: " + JSON.stringify(getSiswaHeaders()));
+      hasil.push("       Solusi (b): set Script Properties ORTU_HEADER_CANDIDATES berisi nama kolom persis di sheet, contoh 'nomorwali'.");
+    } else {
+      hasil.push("OK  : " + punyaNomor.length + "/" + daftarSiswa.length + " siswa memiliki nomor ortu. Contoh: " +
+        punyaNomor.slice(0, 3).map(function (s) { return s.nama + " -> " + s.noOrtu; }).join("; "));
+
+      // validasi format tanpa mengirim
+      const rusak = punyaNomor.filter(function (s) { return !normalizeWhatsAppNumber(s.noOrtu).success; });
+      if (rusak.length > 0) {
+        hasil.push("PERINGATAN: " + rusak.length + " nomor tidak valid formatnya, mis. " +
+          rusak.slice(0, 3).map(function (s) { return s.nama + " (" + s.noOrtu + ")"; }).join(", "));
+      } else {
+        hasil.push("OK  : Semua nomor yang terisi lolos validasi format.");
+      }
+    }
+  }
+
+  // 4. Kirim pesan tes bila token tersedia
+  const targetTes = asText(props.getProperty("WA_TEST_TARGET"));
+  if (waToken && targetTes) {
+    const norm = normalizeWhatsAppNumber(targetTes);
+    if (norm.success) {
+      const tes = kirimWaOrtu("(TES)", "Setup", targetTes, Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+7", "HH:mm"), normalizeDate(new Date()));
+      hasil.push(tes.success ? "OK  : Pesan TES TERKIRIM ke " + norm.target + ". Jika WA benar-benar masuk, sistem siap." : "GAGAL: Pesan tes ditolak: " + tes.message);
+    } else {
+      hasil.push("GAGAL: WA_TEST_TARGET tidak valid: " + norm.message);
+    }
+  } else if (waToken) {
+    hasil.push("INFO: Untuk uji kirim sungguhan, set Script Properties WA_TEST_TARGET=08xxxxxxxxxx lalu jalankan lagi.");
+  }
+
+  Logger.log("=== HASIL SETUP WA ===\n" + hasil.join("\n"));
+  return hasil.join("\n");
+}
+
+// Ambil header mentah sheet Siswa (untuk pesan diagnosis).
+function getSiswaHeaders() {
+  try {
+    const sheet = getSpreadsheet().getSheetByName(SHEET_DATA_SISWA);
+    if (!sheet) return [];
+    const values = sheet.getDataRange().getDisplayValues();
+    const idx = findHeaderRowIndex(values, QR_HEADER_CANDIDATES.concat(NAMA_HEADER_CANDIDATES));
+    return values[idx < 0 ? 0 : idx].map(asText).filter(function (h) { return h !== ""; });
+  } catch (e) {
+    return [];
+  }
 }
 
 function outputJson(data) {
@@ -518,11 +681,28 @@ function normalizeWhatsAppNumber(noHp) {
   };
 }
 
-function kirimWaOrtu(nama, status, noHp, jam) {
+// Bangun isi pesan WA. Template bisa dioverride lewat Script Properties
+// (key: WA_TEMPLATE) dengan placeholder {nama}, {status}, {jam}, {tanggal}.
+function buildWaPesan(nama, status, jam, tanggal) {
+  const template = asText(
+    PropertiesService.getScriptProperties().getProperty("WA_TEMPLATE")
+  );
+  if (template) {
+    return template
+      .replace(/\{nama\}/g, nama)
+      .replace(/\{status\}/g, status)
+      .replace(/\{jam\}/g, jam)
+      .replace(/\{tanggal\}/g, tanggal || "");
+  }
+  return "Yth. Wali Murid,\n\nAnak Anda *" + nama + "* telah presensi *" + status +
+    "* pada jam " + jam + ".\n\nTerima kasih.\n- Class Digital SMPN 18 Padang";
+}
+
+function kirimWaOrtu(nama, status, noHp, jam, tanggal) {
   const waToken = getWaToken();
   if (!waToken) {
-    Logger.log("GAGAL KIRIM WA: Token Fonnte belum diisi.");
-    return { success: false, message: "Token Fonnte tidak ditemukan di Script Properties (WA_TOKEN)." };
+    Logger.log("GAGAL KIRIM WA: Token Fonnte belum diisi di Script Properties.");
+    return { success: false, message: "Token Fonnte tidak ditemukan di Script Properties (WA_TOKEN). Buka Project Settings > Script Properties, lalu jalankan setupWaNotifikasi()." };
   }
 
   const rawNoHp = asText(noHp);
@@ -537,7 +717,7 @@ function kirimWaOrtu(nama, status, noHp, jam) {
     return { success: false, message: normalized.message };
   }
 
-  const pesan = "Yth. Wali Murid,\n\nAnak Anda *" + nama + "* telah presensi *" + status + "* pada jam " + jam + ".\n\nTerima kasih.\n- Class Digital SMPN 18 Padang";
+  const pesan = buildWaPesan(nama, status, jam, tanggal);
 
   const payload = {
     target: normalized.target,
@@ -556,7 +736,7 @@ function kirimWaOrtu(nama, status, noHp, jam) {
   };
 
   try {
-    const response = UrlFetchApp.fetch(WA_URL, options);
+    const response = UrlFetchApp.fetch(getWaUrl(), options);
     const body = response.getContentText();
     const parsed = (() => {
       try { return JSON.parse(body); } catch (e) { return null; }
