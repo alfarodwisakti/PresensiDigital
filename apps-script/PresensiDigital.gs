@@ -7,17 +7,10 @@ const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_KELAS = "8.G";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
-// Isi token terbaru dari Fonnte Dashboard > Device > Token
-// lalu simpan di Script Properties dengan nama: WA_TOKEN
-const WA_TOKEN = PropertiesService.getScriptProperties().getProperty("WA_TOKEN") || "";
 const WA_URL = "https://api.fonnte.com/send";
 
-function ensureWaToken() {
-  if (!WA_TOKEN) {
-    Logger.log("WA_TOKEN kosong. Isi Script Properties > WA_TOKEN dengan token dari Fonnte Device.");
-    return false;
-  }
-  return true;
+function getWaToken() {
+  return PropertiesService.getScriptProperties().getProperty("WA_TOKEN");
 }
 
 function getSpreadsheet() {
@@ -450,7 +443,8 @@ function outputJson(data) {
 }
 
 function kirimWaOrtu(nama, status, noHp, jam) {
-  if (!ensureWaToken()) {
+  const waToken = getWaToken();
+  if (!waToken) {
     Logger.log("GAGAL KIRIM WA: Token Fonnte belum diisi.");
     return false;
   }
@@ -503,7 +497,7 @@ function kirimWaOrtu(nama, status, noHp, jam) {
 
   const options = {
     method: 'post',
-    headers: { Authorization: WA_TOKEN },
+    headers: { Authorization: waToken },
     payload: payload,
     muteHttpExceptions: true,
     followRedirects: true
