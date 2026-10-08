@@ -24,3 +24,5 @@ tanggal,jam,nomorQr,nama,kelas,status,metode,keterangan
 2026-09-18,06:50:35,2408002,AFIQAH KHAIRUNNISA RIZALOV,8.G,Terlambat,Scan,Terlambat masuk
 
 Setelah sheet dibuat, ganti nilai `SPREADSHEET_ID` di [apps-script/PresensiDigital.gs](../PresensiDigital.gs) dengan ID spreadsheet Anda lalu deploy ulang Web App.
+
+Sheet `Presensi Mapel` akan dibuat otomatis ketika konfirmasi presensi per mata pelajaran pertama kali berhasil. Jangan ubah nama atau header kolom sheet tersebut setelah dibuat. Setelah memperbarui kode Apps Script, buka **Deploy > Manage deployments**, edit deployment Web App, pilih **New version**, lalu deploy agar aksi konfirmasi tersedia di aplikasi.

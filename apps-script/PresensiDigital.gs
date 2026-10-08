@@ -3,6 +3,7 @@ const SPREADSHEET_ID = "1IvcU5AgRMF4a9CiY8QnSuMAQMG9pvj_mJBv_bdQPnzo";
 const SHEET_ADMIN = "Admin";
 const SHEET_DATA_SISWA = "Siswa"; // PASTIKAN NAMA TAB DI GOOGLE SHEET ADALAH "Siswa"
 const SHEET_PRESENSI = "Presensi";
+const SHEET_PRESENSI_MAPEL = "Presensi Mapel";
 const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_KELAS = "8.G";
 
@@ -446,7 +447,108 @@ function doPost(e) {
         return outputJson({ success: true, data: users });
       }
 
-            case "simpanPresensi": {
+      case "simpanPresensiMapel": {
+        const mapel = asText(body.mapel);
+        const guru = asText(body.guru);
+        const kelas = asText(body.kelas) || DEFAULT_KELAS;
+        const tanggal = normalizeDate(body.tanggal || new Date());
+        const jam = normalizeTime(body.jam || new Date());
+        const records = body.records;
+
+        if (!mapel) return outputJson({ success: false, message: "Mata pelajaran belum dipilih." });
+        if (!guru) return outputJson({ success: false, message: "Nama guru belum tersedia." });
+        if (!Array.isArray(records) || records.length === 0) {
+          return outputJson({ success: false, message: "Tidak ada data kehadiran untuk disimpan." });
+        }
+
+        const statuses = ["Hadir", "Izin", "Sakit", "Alpa"];
+        const students = getDaftarSiswa(kelas);
+        const studentsByQr = {};
+        students.forEach((student) => {
+          studentsByQr[student.nomorQr.toLowerCase()] = student;
+        });
+
+        const seenQr = {};
+        const validatedRecords = [];
+        for (let i = 0; i < records.length; i++) {
+          const record = records[i] || {};
+          const nomorQr = asText(record.nomorQr);
+          const key = nomorQr.toLowerCase();
+          const siswa = studentsByQr[key];
+          const status = asText(record.status);
+
+          if (!nomorQr || !siswa) {
+            return outputJson({ success: false, message: "Siswa dengan Nomor QR '" + (nomorQr || "(kosong)") + "' tidak ditemukan di kelas " + kelas + "." });
+          }
+          if (seenQr[key]) {
+            return outputJson({ success: false, message: "Data siswa " + siswa.nama + " tercantum lebih dari sekali." });
+          }
+          if (statuses.indexOf(status) < 0) {
+            return outputJson({ success: false, message: "Status kehadiran untuk " + siswa.nama + " tidak valid." });
+          }
+
+          seenQr[key] = true;
+          validatedRecords.push({
+            nomorQr: siswa.nomorQr,
+            nama: siswa.nama,
+            kelas: siswa.kelas || kelas,
+            status: status,
+            keterangan: asText(record.keterangan)
+          });
+        }
+
+        const spreadsheet = getSpreadsheet();
+        const sheetMapel = spreadsheet.getSheetByName(SHEET_PRESENSI_MAPEL)
+          || spreadsheet.insertSheet(SHEET_PRESENSI_MAPEL);
+        const headers = ["id", "tanggal", "jam", "nomorQr", "nama", "kelas", "mapel", "guru", "status", "metode", "keterangan"];
+        if (sheetMapel.getLastRow() === 0) {
+          sheetMapel.getRange(1, 1, 1, headers.length).setValues([headers]);
+        }
+        const sheetHeaders = sheetMapel.getRange(1, 1, 1, sheetMapel.getLastColumn()).getDisplayValues()[0]
+          .map((header) => asText(header).toLowerCase().replace(/[^a-z0-9]/g, ""));
+        const columnIndexes = headers.map((header) => sheetHeaders.indexOf(header.toLowerCase()));
+        if (columnIndexes.some((index) => index < 0)) {
+          return outputJson({ success: false, message: "Header sheet '" + SHEET_PRESENSI_MAPEL + "' tidak sesuai. Gunakan kolom: " + headers.join(", ") + "." });
+        }
+
+        const rowsToAppend = validatedRecords.map((record) => {
+          const values = {
+            id: "MP-" + Utilities.getUuid(),
+            tanggal: tanggal,
+            jam: jam,
+            nomorQr: record.nomorQr,
+            nama: record.nama,
+            kelas: record.kelas,
+            mapel: mapel,
+            guru: guru,
+            status: record.status,
+            metode: "Observasi",
+            keterangan: record.keterangan
+          };
+          const row = new Array(sheetHeaders.length).fill("");
+          headers.forEach((header, index) => {
+            row[columnIndexes[index]] = values[header];
+          });
+          return row;
+        });
+
+        const lock = LockService.getScriptLock();
+        lock.waitLock(10000);
+        try {
+          const firstRow = sheetMapel.getLastRow() + 1;
+          sheetMapel.getRange(firstRow, 1, rowsToAppend.length, sheetHeaders.length).setValues(rowsToAppend);
+        } finally {
+          lock.releaseLock();
+        }
+
+        return outputJson({
+          success: true,
+          saved: rowsToAppend.length,
+          message: "Presensi " + mapel + " berhasil dikonfirmasi untuk " + rowsToAppend.length + " siswa."
+        });
+      }
+
+      case "simpanPresensi": {
         const nomorQr = asText(body.nomorQr);
         if (!nomorQr) return outputJson({ success: false, message: "Nomor QR kosong." });
 
