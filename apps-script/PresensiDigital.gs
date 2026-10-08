@@ -4,7 +4,6 @@ const SHEET_ADMIN = "Admin";
 const SHEET_DATA_SISWA = "Siswa"; // PASTIKAN NAMA TAB DI GOOGLE SHEET ADALAH "Siswa"
 const SHEET_PRESENSI = "Presensi";
 const SHEET_PRESENSI_MAPEL = "Presensi Mapel";
-const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_KELAS = "8.G";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
@@ -568,11 +567,22 @@ function doPost(e) {
         const tanggal = normalizeDate(body.tanggal || new Date());
         const jam = normalizeTime(body.jam || new Date());
         let status = asText(body.status || "Hadir");
-        
-        // Cek duplikasi hari ini
-        const sudahAbsen = getPresensiRows().some(r => 
-          r.nomorQr.toLowerCase() === cleanQr && normalizeDate(r.tanggal) === tanggal
-        );
+
+        const lock = LockService.getScriptLock();
+        lock.waitLock(10000);
+        let sudahAbsen;
+        try {
+          sudahAbsen = getPresensiRows().some(r =>
+            r.nomorQr.toLowerCase() === cleanQr && normalizeDate(r.tanggal) === tanggal
+          );
+          if (!sudahAbsen) {
+            const id = "P-" + Math.random().toString(36).substr(2, 8).toUpperCase();
+            const sheetPresensi = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
+            sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
+          }
+        } finally {
+          lock.releaseLock();
+        }
 
         if (sudahAbsen) {
           // Duplikat scan tetap memberi info status ke frontend. Notifikasi WA
@@ -594,13 +604,6 @@ function doPost(e) {
             message: siswa.nama + " sudah presensi hari ini; notifikasi WhatsApp tidak dikirim ulang."
           });
         }
-
-        if (status === "Hadir" && jam.substring(0,5) > JAM_BATAS_TERLAMBAT) status = "Terlambat";
-
-        // Simpan ke Sheet Presensi
-        const id = "P-" + Math.random().toString(36).substr(2, 8).toUpperCase();
-        const sheetPresensi = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
-        sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
 
         // --- PROSES KIRIM WA ---
         // Sumber nomor: kolom No_Ortu di sheet Siswa (via getDaftarSiswa),

@@ -90,7 +90,6 @@ export const SettingsView: React.FC = () => {
 const SHEET_SISWA = "Siswa";
 const SHEET_PRESENSI = "Presensi";
 const SHEET_ADMIN = "Admin";
-const JAM_BATAS_TERLAMBAT = "07:15";
 
 function doPost(e) {
   let response;

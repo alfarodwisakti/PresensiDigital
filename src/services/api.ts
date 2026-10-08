@@ -1,7 +1,6 @@
 import { Siswa, PresensiRecord, UserSession, ApiResponse, RekapHarianData, RekapPeriodeData, StatusPresensi, SiswaRekapStat } from '../types';
 
 export const DEFAULT_KELAS = "8.G";
-export const JAM_BATAS_TERLAMBAT = "07:15";
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbx5JHN0vzj-8QPsuEsDxBPGtHMkUDEAbhLEmtpzCv_csTm-Gs7Y2V8hGUAGiLAw1r5ANg/exec";
 
 const INITIAL_SISWA: Siswa[] = [];
@@ -220,15 +219,27 @@ function executeLocalAction(action: string, payload: any): ApiResponse {
       return { success: false, message: `Nomor QR "${nomorQr}" tidak ditemukan / tidak terdaftar.` };
     }
 
-    let finalStatus: StatusPresensi = statusInput;
-    if (statusInput === "Hadir" && normalizeTimeString(jam) > JAM_BATAS_TERLAMBAT) {
-      finalStatus = "Terlambat";
+    const attendanceDate = tanggal || formatTanggal();
+    const attendanceTime = jam || formatJam();
+    const records = getLocalRecords();
+    const alreadyRecorded = records.some(record =>
+      record.nomorQr.trim().toLowerCase() === siswa.nomorQr.trim().toLowerCase() &&
+      normalizeDateString(record.tanggal) === normalizeDateString(attendanceDate)
+    );
+    if (alreadyRecorded) {
+      return {
+        success: true,
+        duplicate: true,
+        nama: siswa.nama,
+        message: `${siswa.nama} sudah presensi hari ini; presensi tidak dicatat ulang.`
+      };
     }
 
+    const finalStatus: StatusPresensi = statusInput || "Hadir";
     const newRecord: PresensiRecord = {
       id: "rec_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
-      tanggal: tanggal || formatTanggal(),
-      jam: jam || formatJam(),
+      tanggal: attendanceDate,
+      jam: attendanceTime,
       nomorQr: siswa.nomorQr,
       nama: siswa.nama,
       kelas: kelas || siswa.kelas || DEFAULT_KELAS,
@@ -237,7 +248,6 @@ function executeLocalAction(action: string, payload: any): ApiResponse {
       keterangan: keterangan || ""
     };
 
-    const records = getLocalRecords();
     records.unshift(newRecord);
     saveLocalRecords(records);
 
