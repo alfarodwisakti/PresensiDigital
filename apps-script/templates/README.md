@@ -23,8 +23,8 @@ tanggal,jam,nomorQr,nama,kelas,status,metode,keterangan
 2026-09-18,06:45:12,2408001,AFIFAH SYAHIRA FITRI,8.G,Hadir,Scan,
 2026-09-18,06:50:35,2408002,AFIQAH KHAIRUNNISA RIZALOV,8.G,Terlambat,Scan,Terlambat masuk
 
-Setelah sheet dibuat, ganti nilai `SPREADSHEET_ID` di [apps-script/PresensiDigital.gs](../PresensiDigital.gs) dengan ID spreadsheet Anda lalu deploy ulang Web App.
+Setelah sheet dibuat, ganti nilai `SPREADSHEET_ID` di [apps-script/PresensiDigital.gs](../PresensiDigital.gs) dengan ID spreadsheet Anda lalu deploy ulang Web App. Di editor Apps Script, jalankan fungsi `setupAutomaticAlpa` satu kali dan izinkan pemicu untuk membuat catatan Alpa harian otomatis.
 
 Sheet `Presensi Mapel` akan dibuat otomatis ketika konfirmasi presensi per mata pelajaran pertama kali berhasil. Jangan ubah nama atau header kolom sheet tersebut setelah dibuat. Setelah memperbarui kode Apps Script, buka **Deploy > Manage deployments**, edit deployment Web App, pilih **New version**, lalu deploy agar aksi konfirmasi tersedia di aplikasi.
 
-Presensi scan harian hanya dicatat satu kali per siswa. Scan pertama tetap berstatus **Hadir**, termasuk jika dilakukan setelah pukul 08.00; scan berikutnya pada tanggal yang sama tidak membuat catatan presensi baru.
+Presensi harian hanya memiliki satu catatan per siswa. Status **Hadir** yang dicatat setelah pukul 08.00 otomatis menjadi **Terlambat**. Setelah pukul 14.15 WIB pada Senin–Jumat, siswa yang belum tercatat akan diberi status **Alpa** otomatis. Jika siswa tersebut hadir kemudian, scan akan memperbarui catatan Alpa otomatis menjadi **Terlambat**. Pemicu Apps Script berjalan sekitar pukul 14.16–14.46; saat dashboard memuat rekap setelah pukul 14.15, penandaan Alpa juga langsung dijalankan. Untuk mengecualikan hari libur, isi Script Properties `SCHOOL_HOLIDAYS` dengan tanggal ISO dipisahkan koma, misalnya `2026-12-25,2027-01-01`.

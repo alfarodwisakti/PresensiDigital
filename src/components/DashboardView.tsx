@@ -26,6 +26,7 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, userRole }) => {
   const [data, setData] = useState<RekapHarianData>({
     hadir: 0,
+    terlambat: 0,
     izin: 0,
     sakit: 0,
     alpa: 0,
@@ -179,7 +180,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate, userRo
             </div>
           </div>
           <div className="text-3xl font-extrabold text-slate-800">{data.hadir}</div>
-          <div className="text-xs text-slate-500 mt-1">Termasuk hadir tepat waktu & terlambat</div>
+          <div className="text-xs text-slate-500 mt-1">{data.hadir - data.terlambat} tepat waktu · {data.terlambat} terlambat</div>
         </div>
 
         {/* Izin */}

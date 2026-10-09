@@ -35,6 +35,7 @@ export interface UserSession {
 
 export interface RekapHarianData {
   hadir: number;
+  terlambat: number;
   izin: number;
   sakit: number;
   alpa: number;

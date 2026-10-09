@@ -235,7 +235,10 @@ function executeLocalAction(action: string, payload: any): ApiResponse {
       };
     }
 
-    const finalStatus: StatusPresensi = statusInput || "Hadir";
+    const finalStatus: StatusPresensi =
+      statusInput === "Hadir" || statusInput === "Terlambat"
+        ? (normalizeTimeString(attendanceTime) > "08:00:00" ? "Terlambat" : "Hadir")
+        : statusInput || "Hadir";
     const newRecord: PresensiRecord = {
       id: "rec_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
       tanggal: attendanceDate,

@@ -5,6 +5,9 @@ const SHEET_DATA_SISWA = "Siswa"; // PASTIKAN NAMA TAB DI GOOGLE SHEET ADALAH "S
 const SHEET_PRESENSI = "Presensi";
 const SHEET_PRESENSI_MAPEL = "Presensi Mapel";
 const DEFAULT_KELAS = "8.G";
+const ATTENDANCE_TIME_ZONE = "Asia/Jakarta";
+const LATE_AFTER = "08:00:00";
+const ALPA_AFTER = "14:15:00";
 
 // --- KONFIGURASI WHATSAPP GATEWAY ---
 // CATATAN DEPLOY: Web App Apps Script menjalankan SALINAN kode pada saat
@@ -244,6 +247,172 @@ function getPresensiRows() {
   }));
 }
 
+function getAttendanceDateTime(date) {
+  const value = date || new Date();
+  return {
+    tanggal: Utilities.formatDate(value, ATTENDANCE_TIME_ZONE, "yyyy-MM-dd"),
+    jam: Utilities.formatDate(value, ATTENDANCE_TIME_ZONE, "HH:mm:ss")
+  };
+}
+
+function isAfterAlpaCutoff(jam) {
+  return normalizeTime(jam) > ALPA_AFTER;
+}
+
+function resolveAttendanceStatus(status, jam) {
+  if (status === "Hadir" || status === "Terlambat") {
+    return normalizeTime(jam) > LATE_AFTER ? "Terlambat" : "Hadir";
+  }
+  return status;
+}
+
+function isSchoolDay(date) {
+  const weekday = Number(Utilities.formatDate(date, ATTENDANCE_TIME_ZONE, "u"));
+  if (weekday > 5) return false;
+
+  const dateString = Utilities.formatDate(date, ATTENDANCE_TIME_ZONE, "yyyy-MM-dd");
+  const holidays = asText(PropertiesService.getScriptProperties().getProperty("SCHOOL_HOLIDAYS"))
+    .split(/[,\s]+/)
+    .filter((value) => value !== "");
+  return holidays.indexOf(dateString) < 0;
+}
+
+function ensureAutomaticAlpaForToday(requestedDate) {
+  const now = getAttendanceDateTime();
+  if (isSchoolDay(new Date()) && normalizeDate(requestedDate) === now.tanggal && isAfterAlpaCutoff(now.jam)) {
+    createAutomaticAlpaRecords(now.tanggal);
+  }
+}
+
+function createAutomaticAlpaRecords(tanggal) {
+  const students = getDaftarSiswa(DEFAULT_KELAS);
+  if (students.length === 0) return 0;
+
+  const sheet = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
+  if (!sheet) throw new Error("Sheet '" + SHEET_PRESENSI + "' tidak ditemukan.");
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const values = sheet.getDataRange().getDisplayValues();
+    const headerIndex = findHeaderRowIndex(values, ["nomorqr", "nama", "tanggal"]);
+    if (headerIndex < 0) throw new Error("Header sheet Presensi tidak ditemukan.");
+
+    const headers = values[headerIndex].map((header) =>
+      asText(header).toLowerCase().replace(/[^a-z0-9]/g, "")
+    );
+    const columns = {
+      id: headers.indexOf("id"),
+      tanggal: headers.indexOf("tanggal"),
+      jam: headers.indexOf("jam"),
+      nomorQr: pickColumnIndex(headers, QR_HEADER_CANDIDATES),
+      nama: pickColumnIndex(headers, NAMA_HEADER_CANDIDATES),
+      kelas: pickColumnIndex(headers, KELAS_HEADER_CANDIDATES),
+      status: headers.indexOf("status"),
+      metode: headers.indexOf("metode"),
+      keterangan: headers.indexOf("keterangan")
+    };
+    const requiredColumns = ["tanggal", "jam", "nomorQr", "nama", "kelas", "status", "metode", "keterangan"];
+    if (requiredColumns.some((key) => columns[key] < 0)) {
+      throw new Error("Header sheet Presensi tidak memiliki kolom wajib untuk membuat Alpa otomatis.");
+    }
+
+    const recordedQr = {};
+    for (let rowIndex = headerIndex + 1; rowIndex < values.length; rowIndex++) {
+      const row = values[rowIndex];
+      if (normalizeDate(row[columns.tanggal]) === tanggal) {
+        recordedQr[asText(row[columns.nomorQr]).toLowerCase()] = true;
+      }
+    }
+
+    const width = values[headerIndex].length;
+    const rowsToAppend = students
+      .filter((student) => !recordedQr[student.nomorQr.toLowerCase()])
+      .map((student) => {
+        const row = new Array(width).fill("");
+        if (columns.id >= 0) row[columns.id] = "P-" + Utilities.getUuid();
+        row[columns.tanggal] = tanggal;
+        row[columns.jam] = ALPA_AFTER;
+        row[columns.nomorQr] = student.nomorQr;
+        row[columns.nama] = student.nama;
+        row[columns.kelas] = student.kelas || DEFAULT_KELAS;
+        row[columns.status] = "Alpa";
+        row[columns.metode] = "Otomatis";
+        row[columns.keterangan] = "Belum presensi sampai pukul 14.15";
+        return row;
+      });
+
+    if (rowsToAppend.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, width).setValues(rowsToAppend);
+    }
+    return rowsToAppend.length;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateAutomaticAlpaRecord(sheet, nomorQr, tanggal, jam, status, metode, keterangan) {
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerIndex = findHeaderRowIndex(values, ["nomorqr", "nama", "tanggal"]);
+  if (headerIndex < 0) throw new Error("Header sheet Presensi tidak ditemukan.");
+
+  const headers = values[headerIndex].map((header) =>
+    asText(header).toLowerCase().replace(/[^a-z0-9]/g, "")
+  );
+  const columns = {
+    tanggal: headers.indexOf("tanggal"),
+    jam: headers.indexOf("jam"),
+    nomorQr: pickColumnIndex(headers, QR_HEADER_CANDIDATES),
+    status: headers.indexOf("status"),
+    metode: headers.indexOf("metode"),
+    keterangan: headers.indexOf("keterangan")
+  };
+  if (Object.keys(columns).some((key) => columns[key] < 0)) {
+    throw new Error("Header sheet Presensi tidak lengkap untuk memperbarui Alpa otomatis.");
+  }
+
+  for (let rowIndex = headerIndex + 1; rowIndex < values.length; rowIndex++) {
+    const row = values[rowIndex];
+    if (
+      asText(row[columns.nomorQr]).toLowerCase() === nomorQr.toLowerCase() &&
+      normalizeDate(row[columns.tanggal]) === tanggal &&
+      asText(row[columns.status]) === "Alpa" &&
+      asText(row[columns.metode]).toLowerCase() === "otomatis"
+    ) {
+      const sheetRow = rowIndex + 1;
+      sheet.getRange(sheetRow, columns.jam + 1).setValue(jam);
+      sheet.getRange(sheetRow, columns.status + 1).setValue(status);
+      sheet.getRange(sheetRow, columns.metode + 1).setValue(metode);
+      sheet.getRange(sheetRow, columns.keterangan + 1).setValue(keterangan);
+      return true;
+    }
+  }
+  return false;
+}
+
+function setupAutomaticAlpa() {
+  ScriptApp.getProjectTriggers()
+    .filter((trigger) => trigger.getHandlerFunction() === "runAutomaticAlpa")
+    .forEach((trigger) => ScriptApp.deleteTrigger(trigger));
+
+  ScriptApp.newTrigger("runAutomaticAlpa")
+    .timeBased()
+    .atHour(14)
+    .nearMinute(31)
+    .everyDays(1)
+    .inTimezone(ATTENDANCE_TIME_ZONE)
+    .create();
+  Logger.log("Pemicu Alpa otomatis dibuat. Jalankan sekitar pukul 14.16–14.46 WIB setiap hari.");
+}
+
+function runAutomaticAlpa() {
+  const now = getAttendanceDateTime();
+  if (isSchoolDay(new Date()) && isAfterAlpaCutoff(now.jam)) {
+    const added = createAutomaticAlpaRecords(now.tanggal);
+    Logger.log(added + " siswa ditandai Alpa otomatis untuk " + now.tanggal + ".");
+  }
+}
+
 function parseRequestBody(payload) {
   if (!payload) return {};
   if (typeof payload === "string") {
@@ -396,6 +565,7 @@ function doPost(e) {
       // === REKAP HARIAN (dipakai DashboardView) ===
       case "getRekapHarian": {
         const tanggalReq = normalizeDate(body.tanggal || new Date());
+        ensureAutomaticAlpaForToday(tanggalReq);
         const kelasFilter = asText(body.kelas || "");
         const records = getPresensiRows().filter(r => normalizeDate(r.tanggal) === tanggalReq);
         const filtered = kelasFilter ? records.filter(r => r.kelas.toUpperCase() === kelasFilter.toUpperCase()) : records;
@@ -403,7 +573,7 @@ function doPost(e) {
         return outputJson({
           success: true,
           data: {
-            hadir: hitung("Hadir"),
+            hadir: hitung("Hadir") + hitung("Terlambat"),
             terlambat: hitung("Terlambat"),
             izin: hitung("Izin"),
             sakit: hitung("Sakit"),
@@ -564,27 +734,44 @@ function doPost(e) {
           return outputJson({ success: false, message: "Nomor QR '" + nomorQr + "' TIDAK TERDAFTAR di database." });
         }
 
-        const tanggal = normalizeDate(body.tanggal || new Date());
-        const jam = normalizeTime(body.jam || new Date());
-        let status = asText(body.status || "Hadir");
+        const attendanceTime = getAttendanceDateTime();
+        const tanggal = attendanceTime.tanggal;
+        const jam = attendanceTime.jam;
+        const requestedStatus = asText(body.status || "Hadir");
+        const status = resolveAttendanceStatus(requestedStatus, jam);
+        const metode = asText(body.metode) === "Manual" ? "Manual" : "Scan";
+
+        if (isAfterAlpaCutoff(jam)) createAutomaticAlpaRecords(tanggal);
 
         const lock = LockService.getScriptLock();
         lock.waitLock(10000);
-        let sudahAbsen;
+        let sudahAbsen = false;
+        let diperbaruiDariAlpa = false;
         try {
           sudahAbsen = getPresensiRows().some(r =>
             r.nomorQr.toLowerCase() === cleanQr && normalizeDate(r.tanggal) === tanggal
           );
+          if (sudahAbsen && (status === "Terlambat" || metode === "Manual")) {
+            diperbaruiDariAlpa = updateAutomaticAlpaRecord(
+              getSpreadsheet().getSheetByName(SHEET_PRESENSI),
+              nomorQr,
+              tanggal,
+              jam,
+              status,
+              metode,
+              status === "Terlambat" ? "Hadir setelah batas pukul 08.00" : asText(body.keterangan)
+            );
+          }
           if (!sudahAbsen) {
             const id = "P-" + Math.random().toString(36).substr(2, 8).toUpperCase();
             const sheetPresensi = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
-            sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, "Scan", ""]);
+            sheetPresensi.appendRow([id, tanggal, jam, nomorQr, siswa.nama, siswa.kelas, status, metode, ""]);
           }
         } finally {
           lock.releaseLock();
         }
 
-        if (sudahAbsen) {
+        if (sudahAbsen && !diperbaruiDariAlpa) {
           // Duplikat scan tetap memberi info status ke frontend. Notifikasi WA
           // TIDAK dikirim ulang untuk spam, tetapi jika nomor ortu tersedia dan
           // WA_WA_DUPLIKAT=true di Script Properties, pesan kedua boleh dikirim.

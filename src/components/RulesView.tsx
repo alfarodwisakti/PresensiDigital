@@ -18,8 +18,9 @@ const ruleSections = [
     title: 'Tanggal dan waktu pencatatan',
     icon: CalendarDays,
     points: [
-      'Tanggal dan jam dicatat otomatis saat presensi dikirim, mengikuti waktu perangkat yang digunakan.',
-      'Aplikasi belum mengatur jadwal masuk, batas waktu keterlambatan, atau penandaan Alpa otomatis.'
+      'Tanggal dan jam pencatatan presensi harian mengikuti waktu server WIB.',
+      'Presensi berstatus Hadir setelah pukul 08.00 otomatis dicatat sebagai Terlambat.',
+      'Setelah pukul 14.15 pada hari sekolah, siswa yang belum memiliki catatan presensi otomatis dicatat Alpa.'
     ]
   },
   {
@@ -27,7 +28,7 @@ const ruleSections = [
     icon: QrCode,
     points: [
       `QR/barcode harus terdaftar pada data siswa kelas ${DEFAULT_KELAS}. Kode yang tidak dikenal tidak dapat dicatat.`,
-      'Scan kamera, scan simulasi, dan upload foto QR mencatat status Hadir dengan metode Scan.',
+      'Scan kamera, scan simulasi, dan upload foto QR mencatat Hadir sebelum pukul 08.00, atau Terlambat setelahnya.',
       'Satu siswa hanya dapat memiliki satu catatan presensi harian pada tanggal yang sama. Scan ulang tidak membuat catatan baru.'
     ]
   },
@@ -36,7 +37,7 @@ const ruleSections = [
     icon: UserRoundCheck,
     points: [
       'Pilih siswa dari daftar yang tersedia; nama atau nomor QR harus cocok dengan data siswa.',
-      'Status yang dapat dipilih adalah Hadir, Izin, Sakit, dan Alpa. Petugas wajib mencentang konfirmasi sebelum menyimpan.',
+      'Status yang dapat dipilih adalah Hadir, Izin, Sakit, dan Alpa. Status Hadir yang dikirim setelah pukul 08.00 otomatis menjadi Terlambat. Petugas wajib mencentang konfirmasi sebelum menyimpan.',
       'Keterangan bersifat opsional, misalnya alasan izin atau sakit. Aturan satu catatan per siswa per tanggal tetap berlaku.'
     ]
   },
@@ -53,7 +54,7 @@ const ruleSections = [
     title: 'Makna status dan rekap',
     icon: ChartNoAxesCombined,
     points: [
-      'Hadir: siswa dicatat hadir; Terlambat: status tersedia dalam data dan rekap; Izin: izin; Sakit: tidak hadir karena sakit; Alpa: tanpa keterangan.',
+      'Hadir: dicatat sebelum pukul 08.00; Terlambat: hadir setelah pukul 08.00, termasuk jika scan dilakukan setelah batas Alpa; Izin dan Sakit: ketidakhadiran dengan keterangan terkait; Alpa: belum tercatat hadir sampai batas pukul 14.15.',
       'Pada rekap periode, status Terlambat dihitung bersama Hadir. Izin, Sakit, dan Alpa dihitung pada kelompoknya masing-masing.'
     ]
   },
@@ -62,7 +63,7 @@ const ruleSections = [
     icon: MessageCircle,
     points: [
       'Notifikasi WhatsApp wali dicoba jika nomor wali tersedia. Status notifikasi mengikuti hasil dari layanan pengiriman.',
-      'Presensi harian yang terdeteksi sebagai duplikat tidak mengirim ulang notifikasi WhatsApp.',
+      'Presensi harian yang terdeteksi sebagai duplikat tidak mengirim ulang notifikasi WhatsApp. Jika siswa yang sudah ditandai Alpa otomatis kemudian hadir, catatannya diperbarui menjadi Terlambat.',
       'Pencatatan memerlukan koneksi ke server pusat. Jika aplikasi menampilkan kegagalan koneksi, jangan menganggap data sudah tersimpan.'
     ]
   }
@@ -84,9 +85,11 @@ export const RulesView: React.FC = () => (
     <div className="flex items-start gap-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm text-amber-100">
       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
       <p>
-        <span className="font-bold">Catatan keterlambatan:</span> aplikasi belum memiliki jam batas masuk atau
-        penentuan Terlambat otomatis. Scan QR selalu mencatat Hadir, sedangkan pilihan Terlambat belum tersedia
-        pada formulir manual maupun presensi mapel. Ikuti ketentuan sekolah untuk penilaian keterlambatan.
+        <span className="font-bold">Jadwal otomatis:</span> batas waktu memakai WIB. Otomatisasi Alpa berlaku
+        Senin–Jumat; pemicu Apps Script berjalan sekitar pukul 14.16–14.46. Pastikan administrator memasangnya satu
+        kali. Tanggal libur dapat dikecualikan
+        melalui properti Apps Script <span className="font-mono">SCHOOL_HOLIDAYS</span>. Presensi mapel tetap
+        merupakan observasi terpisah dan tidak mengubah presensi harian.
       </p>
     </div>
 
@@ -115,8 +118,9 @@ export const RulesView: React.FC = () => (
       <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-blue-300" />
       <p>
         <Wifi className="mr-1 inline h-3.5 w-3.5 text-blue-300" />
-        Panduan ini menjelaskan perilaku sistem saat ini dan bukan pengganti kebijakan resmi sekolah. Untuk perubahan
-        ketentuan sekolah atau pengaturan jam keterlambatan, administrator perlu menyesuaikan konfigurasi aplikasi.
+        Hari libur tidak diketahui otomatis. Admin perlu mengisi properti Script Properties bernama
+        <span className="mx-1 font-mono">SCHOOL_HOLIDAYS</span> dengan tanggal ISO dipisahkan koma, misalnya
+        <span className="ml-1 font-mono">2026-12-25,2027-01-01</span>, agar tanggal libur tidak ditandai Alpa.
       </p>
     </div>
   </div>
