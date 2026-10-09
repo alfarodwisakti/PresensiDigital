@@ -10,11 +10,12 @@ import {
   Menu,
   X,
   BellRing,
-  ClipboardCheck
+  ClipboardCheck,
+  BookOpen
 } from 'lucide-react';
 import { UserSession } from '../types';
 
-export type NavTab = 'dashboard' | 'presensi' | 'presensi-mapel' | 'rekap' | 'siswa' | 'random-call' | 'settings';
+export type NavTab = 'dashboard' | 'presensi' | 'presensi-mapel' | 'rekap' | 'siswa' | 'random-call' | 'rules' | 'settings';
 
 interface SidebarProps {
   currentTab: NavTab;
@@ -38,13 +39,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'presensi' as NavTab, label: 'Presensi', icon: QrCode, desc: 'Scan QR & manual' },
     { id: 'presensi-mapel' as NavTab, label: 'Presensi Mapel', icon: ClipboardCheck, desc: 'Observasi guru per mapel' },
     { id: 'rekap' as NavTab, label: 'Rekap & Laporan', icon: BarChart3, desc: 'Grafik & export Excel' },
+    { id: 'rules' as NavTab, label: 'Aturan Kehadiran', icon: BookOpen, desc: 'Panduan pencatatan presensi' },
     { id: 'siswa' as NavTab, label: 'Data Siswa', icon: Users, desc: 'Kelola & cetak kartu' },
     { id: 'random-call' as NavTab, label: 'Panggil Acak', icon: BellRing, desc: 'Animasi & suara' },
     { id: 'settings' as NavTab, label: 'Koneksi & Panduan', icon: Settings, desc: 'Supabase & backend' },
   ];
 
   const visibleNavItems = user?.role === 'Pengunjung'
-    ? navItems.filter(item => item.id === 'dashboard' || item.id === 'rekap')
+    ? navItems.filter(item => item.id === 'dashboard' || item.id === 'rekap' || item.id === 'rules')
     : navItems;
 
   return (

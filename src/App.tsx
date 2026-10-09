@@ -12,6 +12,7 @@ import { RekapView } from './components/RekapView';
 import { SiswaView } from './components/SiswaView';
 import { RandomCallView } from './components/RandomCallView';
 import { SettingsView } from './components/SettingsView';
+import { RulesView } from './components/RulesView';
 import { LoginView } from './components/LoginView';
 import { getSession, clearSession, saveSession } from './services/api';
 import { supabase } from './lib/supabase';
@@ -179,6 +180,7 @@ export default function App() {
             )}
             {currentTab === 'presensi-mapel' && <PresensiMapelView guruNama={user?.nama || user?.username || 'Guru'} />}
             {currentTab === 'rekap' && <RekapView userRole={user?.role} />}
+            {currentTab === 'rules' && <RulesView />}
             {currentTab === 'siswa' && <SiswaView />}
             {currentTab === 'random-call' && <RandomCallView />}
             {currentTab === 'settings' && <SettingsView />}
