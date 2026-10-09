@@ -180,7 +180,7 @@ export default function App() {
             )}
             {currentTab === 'presensi-mapel' && <PresensiMapelView guruNama={user?.nama || user?.username || 'Guru'} />}
             {currentTab === 'rekap' && <RekapView userRole={user?.role} />}
-            {currentTab === 'rules' && <RulesView />}
+            {currentTab === 'rules' && <RulesView canManageHolidays={user.role === 'Admin'} />}
             {currentTab === 'siswa' && <SiswaView />}
             {currentTab === 'random-call' && <RandomCallView />}
             {currentTab === 'settings' && <SettingsView />}

@@ -271,10 +271,68 @@ function isSchoolDay(date) {
   if (weekday > 5) return false;
 
   const dateString = Utilities.formatDate(date, ATTENDANCE_TIME_ZONE, "yyyy-MM-dd");
-  const holidays = asText(PropertiesService.getScriptProperties().getProperty("SCHOOL_HOLIDAYS"))
-    .split(/[,\s]+/)
-    .filter((value) => value !== "");
+  const holidays = getSchoolHolidayDates();
   return holidays.indexOf(dateString) < 0;
+}
+
+function getSchoolHolidayDates() {
+  return asText(PropertiesService.getScriptProperties().getProperty("SCHOOL_HOLIDAYS"))
+    .split(/[,\s]+/)
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function isValidSchoolHolidayDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + "T00:00:00Z");
+  return !isNaN(parsed.getTime()) && parsed.toISOString().substring(0, 10) === value;
+}
+
+function getAdminSession(token) {
+  if (!/^gas_[a-f0-9-]{36}$/i.test(asText(token))) return null;
+  const session = PropertiesService.getScriptProperties().getProperty("PRESENSI_SESSION_" + token);
+  if (!session) return null;
+  try {
+    const parsed = JSON.parse(session);
+    if (parsed.expiresAt <= Date.now() || asText(parsed.role).toLowerCase() !== "admin") return null;
+    return parsed;
+  } catch (error) {
+    return null;
+  }
+}
+
+function removeAutomaticAlpaForHolidays(dates) {
+  if (dates.length === 0) return 0;
+  const sheet = getSpreadsheet().getSheetByName(SHEET_PRESENSI);
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerIndex = findHeaderRowIndex(values, ["nomorqr", "nama", "tanggal"]);
+  if (headerIndex < 0) throw new Error("Header sheet Presensi tidak ditemukan.");
+  const headers = values[headerIndex].map((header) =>
+    asText(header).toLowerCase().replace(/[^a-z0-9]/g, "")
+  );
+  const dateColumn = headers.indexOf("tanggal");
+  const statusColumn = headers.indexOf("status");
+  const methodColumn = headers.indexOf("metode");
+  if (dateColumn < 0 || statusColumn < 0 || methodColumn < 0) {
+    throw new Error("Header sheet Presensi tidak lengkap untuk menyesuaikan libur.");
+  }
+
+  const holidaySet = new Set(dates);
+  const rowsToDelete = [];
+  for (let rowIndex = headerIndex + 1; rowIndex < values.length; rowIndex++) {
+    const row = values[rowIndex];
+    if (
+      holidaySet.has(normalizeDate(row[dateColumn])) &&
+      asText(row[statusColumn]) === "Alpa" &&
+      asText(row[methodColumn]).toLowerCase() === "otomatis"
+    ) {
+      rowsToDelete.push(rowIndex + 1);
+    }
+  }
+
+  rowsToDelete.reverse().forEach((rowNumber) => sheet.deleteRow(rowNumber));
+  return rowsToDelete.length;
 }
 
 function ensureAutomaticAlpaForToday(requestedDate) {
@@ -456,14 +514,54 @@ function doPost(e) {
         const users = getAdminUsers();
         const matched = users.find((u) => u.username.toLowerCase() === asText(body.username).toLowerCase() && u.password === asText(body.password));
         if (!matched) return outputJson({ success: false, message: "Username/password salah." });
-        
+        const properties = PropertiesService.getScriptProperties();
+        Object.keys(properties.getProperties()).forEach((key) => {
+          if (key.indexOf("PRESENSI_SESSION_gas_") !== 0) return;
+          try {
+            const oldSession = JSON.parse(properties.getProperty(key));
+            if (!oldSession || oldSession.expiresAt <= Date.now()) properties.deleteProperty(key);
+          } catch (error) {
+            properties.deleteProperty(key);
+          }
+        });
+        const token = "gas_" + Utilities.getUuid();
+        properties.setProperty("PRESENSI_SESSION_" + token, JSON.stringify({
+          username: matched.username,
+          role: matched.role,
+          expiresAt: Date.now() + 8 * 60 * 60 * 1000
+        }));
         return outputJson({ 
           success: true, 
           username: matched.username, 
           nama: matched.nama, 
           role: matched.role, 
-          token: "gas_" + Utilities.getUuid() 
+          token: token
         });
+      }
+
+      case "getSchoolHolidays": {
+        return outputJson({ success: true, data: getSchoolHolidayDates().sort() });
+      }
+
+      case "setSchoolHolidays": {
+        const adminSession = getAdminSession(body.token);
+        if (!adminSession) {
+          return outputJson({ success: false, message: "Sesi admin tidak valid atau telah berakhir. Silakan login ulang." });
+        }
+        if (!Array.isArray(body.dates)) {
+          return outputJson({ success: false, message: "Daftar tanggal libur tidak valid." });
+        }
+        const dates = Array.from(new Set(body.dates.map((value) => asText(value))));
+        if (dates.some((value) => !isValidSchoolHolidayDate(value))) {
+          return outputJson({ success: false, message: "Gunakan tanggal libur yang valid dengan format YYYY-MM-DD." });
+        }
+        dates.sort();
+        const properties = PropertiesService.getScriptProperties();
+        const previousDates = getSchoolHolidayDates();
+        const newlyAddedDates = dates.filter((date) => previousDates.indexOf(date) < 0);
+        removeAutomaticAlpaForHolidays(newlyAddedDates);
+        properties.setProperty("SCHOOL_HOLIDAYS", dates.join(","));
+        return outputJson({ success: true, data: dates, message: "Tanggal libur manual berhasil disimpan." });
       }
 
       // === DATA SISWA ===
@@ -741,7 +839,7 @@ function doPost(e) {
         const status = resolveAttendanceStatus(requestedStatus, jam);
         const metode = asText(body.metode) === "Manual" ? "Manual" : "Scan";
 
-        if (isAfterAlpaCutoff(jam)) createAutomaticAlpaRecords(tanggal);
+        if (isSchoolDay(new Date()) && isAfterAlpaCutoff(jam)) createAutomaticAlpaRecords(tanggal);
 
         const lock = LockService.getScriptLock();
         lock.waitLock(10000);
