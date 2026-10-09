@@ -26,6 +26,28 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const visitorLabel = 'Masuk sebagai Pengunjung';
   const adminLabel = 'Masuk sebagai Admin';
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const queryParams = url.searchParams;
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const oauthError =
+      queryParams.get('error_description') ||
+      hashParams.get('error_description') ||
+      queryParams.get('error') ||
+      hashParams.get('error');
+
+    if (!oauthError) return;
+
+    setErrorMsg(`Login Google gagal: ${oauthError}`);
+    ['error', 'error_description', 'error_code'].forEach((key) => {
+      queryParams.delete(key);
+      hashParams.delete(key);
+    });
+    url.search = queryParams.toString();
+    url.hash = hashParams.toString();
+    window.history.replaceState({}, document.title, url.toString());
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
