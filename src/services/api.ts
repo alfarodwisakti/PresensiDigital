@@ -1,7 +1,7 @@
 import { Siswa, PresensiRecord, UserSession, ApiResponse, RekapHarianData, RekapPeriodeData, StatusPresensi, SiswaRekapStat } from '../types';
 
 export const DEFAULT_KELAS = "8.G";
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbwICUXkG5SJU931W1oozyTSwlxdNBaMbmk-L0h7lToE4blRaXCgiNqFql59tXFhhjihGg/exec";
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbwEycN4QC6J23vV6TUmw99FOSCA6sLmDRUmO_C0i2P54OB7hO48c09Zta4uGm0GsYthyw/exec";
 
 const INITIAL_SISWA: Siswa[] = [];
 
