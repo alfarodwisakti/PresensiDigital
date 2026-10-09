@@ -103,12 +103,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setErrorMsg('');
 
     try {
-      const appUrl = (import.meta.env.VITE_APP_URL || window.location.origin || '').replace(/\/$/, '');
-
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: appUrl,
+          redirectTo: new URL('/', window.location.origin).href,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent'
